@@ -206,13 +206,14 @@ class MusicManager: ObservableObject {
 
         // Handle artwork and visual transitions for changed content
         if hasContentChange {
-            self.triggerFlipAnimation()
-
             if artworkChanged, let artwork = state.artwork {
                 self.updateArtwork(artwork)
-            } else if state.artwork == nil {
-                // Try to use app icon if no artwork but track changed
+            } else if state.artwork == nil,
+                      bundleChanged || self.usingAppIconForArtwork || self.albumArt === defaultImage {
+                // Keep a real cover while the same player's next cover loads.
+                // Use the app icon on first load or when the player changes.
                 if let appIconImage = AppIconAsNSImage(for: state.bundleIdentifier) {
+                    self.triggerFlipAnimation()
                     self.usingAppIconForArtwork = true
                     self.updateAlbumArt(newAlbumArt: appIconImage)
                 }
@@ -527,9 +528,10 @@ class MusicManager: ObservableObject {
 
             if let artworkImage = NSImage(data: artworkData) {
                 DispatchQueue.main.async { [weak self] in
-                    guard self?.artworkData == artworkData else { return }
-                    self?.usingAppIconForArtwork = false
-                    self?.updateAlbumArt(newAlbumArt: artworkImage)
+                    guard let self, self.artworkData == artworkData else { return }
+                    self.triggerFlipAnimation()
+                    self.usingAppIconForArtwork = false
+                    self.updateAlbumArt(newAlbumArt: artworkImage)
                 }
             }
         }
