@@ -307,20 +307,20 @@ class WorkflowSmokeTests(unittest.TestCase):
         for removed in ("immutable", ".immutable", "immutable-release"):
             self.assertNotIn(removed, self.nightly)
 
-    def test_built_product_is_named_boring_notch(self) -> None:
-        # The Xcode product and app bundle are "Boring Notch", while the public
+    def test_built_product_is_named_qingdao(self) -> None:
+        # The Xcode product and app bundle are "轻岛", while the public
         # DMG keeps the legacy boringNotch.dmg name for download/appcast
         # compatibility. The project/target/scheme remain boringNotch.
         pbxproj = (
             REPOSITORY_ROOT / "boringNotch.xcodeproj" / "project.pbxproj"
         ).read_text(encoding="utf-8")
-        self.assertEqual(pbxproj.count('PRODUCT_NAME = "Boring Notch";'), 2)
-        self.assertEqual(pbxproj.count('INFOPLIST_KEY_CFBundleName = "Boring Notch";'), 2)
-        self.assertEqual(pbxproj.count('INFOPLIST_KEY_CFBundleDisplayName = "Boring Notch";'), 2)
+        self.assertEqual(pbxproj.count('PRODUCT_NAME = "轻岛";'), 2)
+        self.assertEqual(pbxproj.count('INFOPLIST_KEY_CFBundleName = "轻岛";'), 2)
+        self.assertEqual(pbxproj.count('INFOPLIST_KEY_CFBundleDisplayName = "轻岛";'), 2)
 
         # Reusable build: archives under the project name, exports the app under
         # APP_NAME, and publishes the compatibility DMG under PROJECT_NAME.
-        self.assertIn("APP_NAME: Boring Notch", self.build_reusable)
+        self.assertIn("APP_NAME: 轻岛", self.build_reusable)
         self.assertIn('"Release/$APP_NAME.app"', self.build_reusable)
         self.assertIn('"Release/$PROJECT_NAME.dmg"', self.build_reusable)
         self.assertIn('name: ${{ env.PROJECT_NAME }}.dmg', self.build_reusable)
@@ -329,19 +329,19 @@ class WorkflowSmokeTests(unittest.TestCase):
 
         # Release pipeline: draft download, artifact download, release upload,
         # embedded notes, and the Homebrew cask all use the legacy DMG name.
-        self.assertIn("APP_NAME: Boring Notch", self.release)
+        self.assertIn("APP_NAME: 轻岛", self.release)
         self.assertIn('--pattern "$PROJECT_NAME.dmg"', self.release)
         self.assertIn('name: ${{ env.PROJECT_NAME }}.dmg', self.release)
         self.assertIn('"Release/$PROJECT_NAME.dmg"', self.release)
         self.assertIn("printf '%s' \"$RELEASE_NOTES\" > \"Release/${PROJECT_NAME}.html\"", self.release)
         self.assertIn("/${PROJECT_NAME}.dmg", self.release)
-        self.assertIn('app "Boring Notch.app"', self.release)
+        self.assertIn('app "轻岛.app"', self.release)
         self.assertNotIn("Boring%20Notch.dmg", self.release)
         self.assertNotIn('app "boringNotch.app"', self.release)
 
         # Nightly: downloads the compatibility artifact, then renames it to the
         # fixed rolling asset name (which is intentionally unchanged).
-        self.assertIn("APP_NAME: Boring Notch", self.nightly)
+        self.assertIn("APP_NAME: 轻岛", self.nightly)
         self.assertIn('name: ${{ env.PROJECT_NAME }}.dmg', self.nightly)
         self.assertIn('mv "Release/${PROJECT_NAME}.dmg" "Release/${ASSET_NAME}"', self.nightly)
         self.assertNotIn("${APP_NAME}.dmg", self.nightly)
