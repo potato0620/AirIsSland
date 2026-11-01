@@ -13,6 +13,7 @@ xcrun swiftc -swift-version 5 -parse-as-library \
   -I "$TEST_LIBRARIES" -L "$TEST_LIBRARIES" -Xlinker -rpath -Xlinker "$TEST_LIBRARIES" \
   -Xlinker -rpath -Xlinker "$SHARED_FRAMEWORKS" \
   "$PROJECT_ROOT/boringNotch/models/PlaybackState.swift" \
+  "$PROJECT_ROOT/boringNotch/models/AlbumArtworkTransition.swift" \
   "$PROJECT_ROOT/boringNotch/models/NetEaseTrackMetadata.swift" \
   "$PROJECT_ROOT/boringNotch/MediaControllers/NowPlayingStream.swift" \
   "$PROJECT_ROOT/Tests/MediaPlaybackTests.swift" \

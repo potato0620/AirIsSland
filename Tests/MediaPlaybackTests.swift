@@ -386,6 +386,115 @@ final class MediaPlaybackTests: XCTestCase {
         let state = session.receive(try neteaseTrack("Already playing", elapsed: 46), neteaseIsRunning: true)
         XCTAssertEqual(state.currentTime, 46)
     }
+    func testArtworkUpgradeAfterCompletedFlipDoesNotFlipAgain() {
+        let oldTrack = UUID(), nextTrack = UUID()
+        var transition = AlbumArtworkTransition<String>(.init(artwork: "old", trackIdentifier: oldTrack, direction: .next))
+        guard case .flip("thumbnail", .next)? = transition.receive(.init(artwork: "thumbnail", trackIdentifier: nextTrack, direction: .next)) else {
+            return XCTFail("A new song must flip")
+        }
+        XCTAssertNil(transition.complete())
+        guard case .replace("high-resolution")? = transition.receive(.init(artwork: "high-resolution", trackIdentifier: nextTrack, direction: .next)) else {
+            return XCTFail("The same song's sharper cover must replace in place")
+        }
+        XCTAssertFalse(transition.isAnimating)
+        XCTAssertNil(transition.complete())
+    }
+
+    func testArtworkUpgradeDuringFlipUpdatesDestinationWithoutAnotherTurn() {
+        let nextTrack = UUID()
+        var transition = AlbumArtworkTransition<String>(.init(artwork: "old", trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: "thumbnail", trackIdentifier: nextTrack, direction: .previous))
+        guard case .replace("sharp")? = transition.receive(.init(artwork: "sharp", trackIdentifier: nextTrack, direction: .previous)) else {
+            return XCTFail("Refinement during a flip must update its destination")
+        }
+        XCTAssertTrue(transition.isAnimating)
+        XCTAssertEqual(transition.target.artwork, "sharp")
+        XCTAssertNil(transition.complete())
+        XCTAssertFalse(transition.isAnimating)
+    }
+
+    func testPendingArtworkRefinementsCoalesceToLatestCoverAndDirection() {
+        var transition = AlbumArtworkTransition<String>(.init(artwork: "old", trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: "first", trackIdentifier: UUID(), direction: .next))
+        let latest = UUID()
+        XCTAssertNil(transition.receive(.init(artwork: "thumbnail", trackIdentifier: latest, direction: .previous)))
+        XCTAssertNil(transition.receive(.init(artwork: "sharp", trackIdentifier: latest, direction: .previous)))
+        guard case .flip("sharp", .previous)? = transition.complete() else {
+            return XCTFail("Only the newest queued cover should flip, keeping its direction")
+        }
+        XCTAssertNil(transition.complete())
+        XCTAssertEqual(transition.target.artwork, "sharp")
+    }
+
+    func testRapidTrackSwitchesDiscardIntermediateArtwork() {
+        var transition = AlbumArtworkTransition<Int>(.init(artwork: 0, trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: 1, trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: 2, trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: 3, trackIdentifier: UUID(), direction: .previous))
+        guard case .flip(3, .previous)? = transition.complete() else { return XCTFail("Stale queued artwork must be discarded") }
+        XCTAssertNil(transition.complete())
+        XCTAssertEqual(AlbumArtFlipDirection.next.rotation, -180)
+        XCTAssertEqual(AlbumArtFlipDirection.previous.rotation, 180)
+    }
+
+    func testArtworkResetCancelsPendingFlip() {
+        let latest = UUID()
+        var transition = AlbumArtworkTransition<Int>(.init(artwork: 0, trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: 1, trackIdentifier: UUID(), direction: .next))
+        _ = transition.receive(.init(artwork: 2, trackIdentifier: latest, direction: .previous))
+        transition.reset(.init(artwork: 2, trackIdentifier: latest, direction: .previous))
+        XCTAssertFalse(transition.isAnimating)
+        XCTAssertNil(transition.complete())
+        guard case .replace(3)? = transition.receive(.init(artwork: 3, trackIdentifier: latest, direction: .next)) else {
+            return XCTFail("Returning to the view must not replay an old flip")
+        }
+    }
+
+    func testLateTrackIdentifierDoesNotTurnArtworkRefinementIntoNewSong() {
+        var tracker = AlbumArtworkTrackTracker()
+        let initial = tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: nil)
+        let identified = tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "42")
+        XCTAssertEqual(initial, identified)
+        XCTAssertEqual(identified, tracker.update(bundleIdentifier: "player", title: " Song ", sourceTrackIdentifier: nil))
+        XCTAssertNotEqual(identified, tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "43"))
+    }
+
+    func testSourceIdentifierArrivingBeforeTitleKeepsOneSongTransition() {
+        var tracker = AlbumArtworkTrackTracker()
+        let old = tracker.update(bundleIdentifier: "player", title: "Old title", sourceTrackIdentifier: "1")
+        let next = tracker.update(bundleIdentifier: "player", title: "Old title", sourceTrackIdentifier: "2")
+        XCTAssertNotEqual(old, next)
+        XCTAssertEqual(next, tracker.update(bundleIdentifier: "player", title: "New title", sourceTrackIdentifier: "2"))
+    }
+
+    func testArtworkTrackIdentityChangesOnNewTitleAndPlayer() {
+        var tracker = AlbumArtworkTrackTracker()
+        let first = tracker.update(bundleIdentifier: "player", title: "First", sourceTrackIdentifier: nil)
+        let second = tracker.update(bundleIdentifier: "player", title: "Second", sourceTrackIdentifier: nil)
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(second, tracker.update(bundleIdentifier: "player", title: "Second", sourceTrackIdentifier: "id"))
+        XCTAssertNotEqual(second, tracker.update(bundleIdentifier: "other-player", title: "Second", sourceTrackIdentifier: "id"))
+    }
+
+    func testNetEaseThumbnailThenQueueCoverProducesOneFlip() throws {
+        var session = NowPlayingPlaybackSession()
+        var tracker = AlbumArtworkTrackTracker()
+        let first = session.receive(try neteaseTrack("First"), neteaseIsRunning: true)
+        let initialID = tracker.update(bundleIdentifier: first.bundleIdentifier, title: first.title, sourceTrackIdentifier: first.sourceTrackIdentifier)
+        var transition = AlbumArtworkTransition<Data?>(.init(artwork: first.artwork, trackIdentifier: initialID, direction: .next))
+        let second = session.receive(try neteaseTrack("Second"), neteaseIsRunning: true)
+        let nextID = tracker.update(bundleIdentifier: second.bundleIdentifier, title: second.title, sourceTrackIdentifier: second.sourceTrackIdentifier)
+        guard case .flip? = transition.receive(.init(artwork: second.artwork, trackIdentifier: nextID, direction: .next)) else { return XCTFail("New track must flip") }
+        XCTAssertNil(transition.complete())
+        let metadata = NetEaseTrackMetadata(id: "2", title: "Second", artist: "Corrected Artist", album: "Corrected Album", duration: 200, artworkURL: nil)
+        let refined = session.reconcile(metadata, artwork: Data([9, 8, 7, 6]))
+        let refinedID = tracker.update(bundleIdentifier: refined.bundleIdentifier, title: refined.title, sourceTrackIdentifier: refined.sourceTrackIdentifier)
+        XCTAssertEqual(nextID, refinedID)
+        guard case .replace(let artwork)? = transition.receive(.init(artwork: refined.artwork, trackIdentifier: refinedID, direction: .next)) else { return XCTFail("NetEase metadata enrichment must not cause a second flip") }
+        XCTAssertEqual(artwork, Data([9, 8, 7, 6]))
+        XCTAssertFalse(transition.isAnimating)
+    }
+
 }
 
 private actor ReceivedUpdates {

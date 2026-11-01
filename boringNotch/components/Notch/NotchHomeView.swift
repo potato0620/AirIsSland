@@ -84,6 +84,7 @@ struct AlbumArtView: View {
     private var albumArtImage: some View {
         SpringAlbumArtwork(
             image: musicManager.albumArt,
+            trackIdentifier: musicManager.albumArtTrackIdentifier,
             direction: musicManager.albumArtFlipDirection,
             cornerRadius: Defaults[.cornerRadiusScaling]
                 ? MusicPlayerImageSizes.cornerRadiusInset.opened
@@ -110,24 +111,26 @@ struct AlbumArtView: View {
 /// newest pending cover, so a completed animation cannot restore an old track.
 struct SpringAlbumArtwork: View {
     let image: NSImage
+    let trackIdentifier: UUID
     let direction: AlbumArtFlipDirection
     let cornerRadius: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var frontImage: NSImage
     @State private var backImage: NSImage
-    @State private var targetImage: NSImage
-    @State private var pendingCover: (image: NSImage, direction: AlbumArtFlipDirection)?
+    @State private var transition: AlbumArtworkTransition<NSImage>
     @State private var angle: Double = 0
-    @State private var isAnimating = false
     @State private var animationID = UUID()
 
-    init(image: NSImage, direction: AlbumArtFlipDirection, cornerRadius: CGFloat) {
+    init(image: NSImage, trackIdentifier: UUID, direction: AlbumArtFlipDirection, cornerRadius: CGFloat) {
         self.image = image
+        self.trackIdentifier = trackIdentifier
         self.direction = direction
         self.cornerRadius = cornerRadius
         _frontImage = State(initialValue: image)
         _backImage = State(initialValue: image)
-        _targetImage = State(initialValue: image)
+        _transition = State(initialValue: AlbumArtworkTransition(.init(
+            artwork: image, trackIdentifier: trackIdentifier, direction: direction
+        )))
     }
 
     var body: some View {
@@ -138,12 +141,12 @@ struct SpringAlbumArtwork: View {
                 .modifier(AlbumArtworkFlipFace(angle: angle - 180))
         }
         .aspectRatio(1, contentMode: .fit)
-        .onChange(of: ObjectIdentifier(image)) { _, _ in flip(to: image, direction: direction) }
+        .onChange(of: ObjectIdentifier(image)) { _, _ in updateCover() }
         .onChange(of: reduceMotion) { _, reduced in
-            if reduced { reset(to: image) }
+            if reduced { reset() }
         }
-        .onAppear { reset(to: image) }
-        .onDisappear { reset(to: image) }
+        .onAppear { reset() }
+        .onDisappear { reset() }
     }
 
     private func face(_ image: NSImage) -> some View {
@@ -153,46 +156,58 @@ struct SpringAlbumArtwork: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 
-    private func flip(to nextImage: NSImage, direction: AlbumArtFlipDirection) {
-        guard !reduceMotion else { reset(to: nextImage); return }
-        guard nextImage !== targetImage else { pendingCover = nil; return }
-        guard !isAnimating else { pendingCover = (nextImage, direction); return }
+    private func updateCover() {
+        guard !reduceMotion else { reset(); return }
+        apply(transition.receive(.init(artwork: image, trackIdentifier: trackIdentifier, direction: direction)))
+    }
 
-        let id = UUID()
+    private func replaceDestination(with image: NSImage) {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             if Int((angle / 180).rounded()) % 2 == 0 {
-                backImage = nextImage
+                frontImage = image
             } else {
-                frontImage = nextImage
-            }
-            targetImage = nextImage
-            isAnimating = true
-            animationID = id
-        }
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.68), completionCriteria: .removed) {
-            angle += direction.rotation
-        } completion: {
-            guard animationID == id else { return }
-            isAnimating = false
-            if let pending = pendingCover {
-                pendingCover = nil
-                flip(to: pending.image, direction: pending.direction)
+                backImage = image
             }
         }
     }
 
-    private func reset(to image: NSImage) {
+    private func apply(_ change: AlbumArtworkTransition<NSImage>.Change?) {
+        guard let change else { return }
+        switch change {
+        case .replace(let image):
+            replaceDestination(with: image)
+        case .flip(let image, let direction):
+            let id = UUID()
+            animationID = id
+            // The opposite face will become visible after this half-turn.
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if Int((angle / 180).rounded()) % 2 == 0 {
+                    backImage = image
+                } else {
+                    frontImage = image
+                }
+            }
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.68), completionCriteria: .removed) {
+                angle += direction.rotation
+            } completion: {
+                guard animationID == id else { return }
+                apply(transition.complete())
+            }
+        }
+    }
+
+    private func reset() {
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             animationID = UUID()
             frontImage = image
             backImage = image
-            targetImage = image
-            pendingCover = nil
-            isAnimating = false
+            transition.reset(.init(artwork: image, trackIdentifier: trackIdentifier, direction: direction))
             angle = 0
         }
     }

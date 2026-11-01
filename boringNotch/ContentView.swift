@@ -352,6 +352,7 @@ struct ContentView: View {
         HStack {
             SpringAlbumArtwork(
                 image: musicManager.albumArt,
+                trackIdentifier: musicManager.albumArtTrackIdentifier,
                 direction: musicManager.albumArtFlipDirection,
                 cornerRadius: MusicPlayerImageSizes.cornerRadiusInset.closed
             )

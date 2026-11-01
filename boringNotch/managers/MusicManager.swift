@@ -14,13 +14,6 @@ let defaultImage: NSImage = .init(
     accessibilityDescription: "Album Art"
 )!
 
-enum AlbumArtFlipDirection {
-    case next
-    case previous
-
-    var rotation: Double { self == .next ? -180 : 180 }
-}
-
 class MusicManager: ObservableObject {
     // MARK: - Properties
     static let shared = MusicManager()
@@ -38,6 +31,7 @@ class MusicManager: ObservableObject {
     // Published properties for UI
     @Published var songTitle: String = "I'm Handsome"
     @Published var artistName: String = "Me"
+    @Published private(set) var albumArtTrackIdentifier = UUID()
     @Published var albumArt: NSImage = defaultImage
     @Published private(set) var albumArtFlipDirection: AlbumArtFlipDirection = .next
     @Published var isPlaying = false
@@ -62,6 +56,7 @@ class MusicManager: ObservableObject {
     @Published var isFavoriteTrack: Bool = false
 
     private var artworkData: Data? = nil
+    private var artworkTrack = AlbumArtworkTrackTracker()
 
     // Store last values at the time artwork was changed
     private var lastArtworkTitle: String = "I'm Handsome"
@@ -180,6 +175,11 @@ class MusicManager: ObservableObject {
     // MARK: - Update Methods
     @MainActor
     private func updateFromPlaybackState(_ state: PlaybackState) {
+        let trackIdentifier = artworkTrack.update(
+            bundleIdentifier: state.bundleIdentifier,
+            title: state.title,
+            sourceTrackIdentifier: state.sourceTrackIdentifier
+        )
         // Check for playback state changes (playing/paused)
         if state.isPlaying != self.isPlaying {
             NSLog("Playback state changed: \(state.isPlaying ? "Playing" : "Paused")")
@@ -219,14 +219,14 @@ class MusicManager: ObservableObject {
         // Handle artwork and visual transitions for changed content
         if hasContentChange {
             if artworkChanged, let artwork = state.artwork {
-                self.updateArtwork(artwork)
+                self.updateArtwork(artwork, trackIdentifier: trackIdentifier)
             } else if state.artwork == nil,
                       bundleChanged || self.usingAppIconForArtwork || self.albumArt === defaultImage {
                 // Keep a real cover while the same player's next cover loads.
                 // Use the app icon on first load or when the player changes.
                 if let appIconImage = AppIconAsNSImage(for: state.bundleIdentifier) {
                     self.usingAppIconForArtwork = true
-                    self.updateAlbumArt(newAlbumArt: appIconImage)
+                    self.updateAlbumArt(newAlbumArt: appIconImage, trackIdentifier: trackIdentifier)
                 }
             }
             self.artworkData = state.artwork
@@ -486,15 +486,16 @@ class MusicManager: ObservableObject {
         return syncedLyrics[idx].text
     }
 
-    private func updateArtwork(_ artworkData: Data) {
+    private func updateArtwork(_ artworkData: Data, trackIdentifier: UUID) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
             if let artworkImage = NSImage(data: artworkData) {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.artworkData == artworkData else { return }
+                    guard let self, self.artworkData == artworkData,
+                          self.artworkTrack.identifier == trackIdentifier else { return }
                     self.usingAppIconForArtwork = false
-                    self.updateAlbumArt(newAlbumArt: artworkImage)
+                    self.updateAlbumArt(newAlbumArt: artworkImage, trackIdentifier: trackIdentifier)
                 }
             }
         }
@@ -516,8 +517,9 @@ class MusicManager: ObservableObject {
         }
     }
 
-    func updateAlbumArt(newAlbumArt: NSImage) {
+    private func updateAlbumArt(newAlbumArt: NSImage, trackIdentifier: UUID) {
         withAnimation(.smooth) {
+            self.albumArtTrackIdentifier = trackIdentifier
             self.albumArt = newAlbumArt
             if Defaults[.coloredSpectrogram] {
                 self.calculateAverageColor()
