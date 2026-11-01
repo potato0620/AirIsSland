@@ -43,7 +43,6 @@ class MusicManager: ObservableObject {
     @Published var isPlaying = false
     @Published var album: String = "Self Love"
     @Published var isPlayerIdle: Bool = true
-    @Published var animations: BoringAnimations = .init()
     @Published var avgColor: NSColor = .white
     @Published var bundleIdentifier: String? = nil
     @Published var songDuration: TimeInterval = 0
@@ -71,9 +70,6 @@ class MusicManager: ObservableObject {
     private var lastArtworkBundleIdentifier: String? = nil
     private var lastArtworkSourceTrackIdentifier: String?
     private var requestedArtworkFlip: (direction: AlbumArtFlipDirection, requestedAt: Date)?
-
-    @Published var isTransitioning: Bool = false
-    private var transitionWorkItem: DispatchWorkItem?
 
     // MARK: - Initialization
     init() {
@@ -107,7 +103,6 @@ class MusicManager: ObservableObject {
         debounceIdleTask?.cancel()
         cancellables.removeAll()
         controllerCancellables.removeAll()
-        transitionWorkItem?.cancel()
 
         // Release active controller
         activeController = nil
@@ -314,33 +309,6 @@ class MusicManager: ObservableObject {
         setFavorite(!isFavoriteTrack)
     }
 
-    @MainActor
-    private func toggleAppleMusicFavorite() async {
-        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music")
-        guard !runningApps.isEmpty else { return }
-
-        let script = """
-        tell application \"Music\"
-            if it is running then
-                try
-                    set loved of current track to (not loved of current track)
-                    return loved of current track
-                on error
-                    return false
-                end try
-            else
-                return false
-            end if
-        end tell
-        """
-
-        if let result = try? await AppleScriptHelper.execute(script) {
-            let loved = result.booleanValue
-            self.isFavoriteTrack = loved
-            self.forceUpdate()
-        }
-    }
-
     func setFavorite(_ favorite: Bool) {
         guard canFavoriteTrack else { return }
         guard let controller = activeController else { return }
@@ -350,11 +318,6 @@ class MusicManager: ObservableObject {
             try? await Task.sleep(for: .milliseconds(150))
             await controller.updatePlaybackInfo()
         }
-    }
-
-    /// Placeholder dislike function
-    func dislikeCurrentTrack() {
-        setFavorite(false)
     }
 
     // MARK: - Lyrics
@@ -553,10 +516,7 @@ class MusicManager: ObservableObject {
         }
     }
 
-    private var workItem: DispatchWorkItem?
-
     func updateAlbumArt(newAlbumArt: NSImage) {
-        workItem?.cancel()
         withAnimation(.smooth) {
             self.albumArt = newAlbumArt
             if Defaults[.coloredSpectrogram] {
@@ -595,24 +555,6 @@ class MusicManager: ObservableObject {
     }
 
     // MARK: - Public Methods for controlling playback
-    func playPause() {
-        Task {
-            await activeController?.togglePlay()
-        }
-    }
-
-    func play() {
-        Task {
-            await activeController?.play()
-        }
-    }
-
-    func pause() {
-        Task {
-            await activeController?.pause()
-        }
-    }
-
     func toggleShuffle() {
         Task {
             await activeController?.toggleShuffle()

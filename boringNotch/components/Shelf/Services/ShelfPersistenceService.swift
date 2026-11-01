@@ -7,9 +7,6 @@
 
 import Foundation
 
-// Access model types
-@_exported import struct Foundation.URL
-
 
 final class ShelfPersistenceService {
     static let shared = ShelfPersistenceService()

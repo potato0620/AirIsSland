@@ -14,12 +14,10 @@ struct Config: Equatable {
     var future: Int = 14
     var steps: Int = 1  // Each step is one day
     var spacing: CGFloat = 0
-    var showsText: Bool = true
     var offset: Int = 2  // Number of dates to the left of the selected date
 }
 
 struct WheelPicker: View {
-    @EnvironmentObject var vm: BoringViewModel
     @Binding var selectedDate: Date
     @State private var scrollPosition: Int?
     @State private var haptics: Bool = false
@@ -64,13 +62,13 @@ struct WheelPicker: View {
         .sensoryFeedback(.alignment, trigger: haptics)
         .onChange(of: scrollPosition) { oldValue, newValue in
             if !byClick {
-                handleScrollChange(newValue: newValue, config: config)
+                handleScrollChange(newValue: newValue)
             } else {
                 byClick = false
             }
         }
         .onAppear {
-            scrollToToday(config: config)
+            scrollToToday()
         }
         // When parent updates the bound selectedDate (e.g., view reopen), center the wheel on it
         .onChange(of: selectedDate) { _, newValue in
@@ -124,7 +122,7 @@ struct WheelPicker: View {
         }
     }
 
-    func handleScrollChange(newValue: Int?, config: Config) {
+    private func handleScrollChange(newValue: Int?) {
         guard let newIndex = newValue else { return }
         let spacerNum = config.offset
         let dateCount = totalDateItems()
@@ -138,7 +136,7 @@ struct WheelPicker: View {
         }
     }
 
-    private func scrollToToday(config: Config) {
+    private func scrollToToday() {
         let today = Date()
         byClick = true
         scrollPosition = indexForDate(today)

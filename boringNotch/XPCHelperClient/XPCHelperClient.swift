@@ -52,10 +52,9 @@ final class XPCHelperClient: NSObject {
         remoteService = service
         return service
     }
-    
-    @MainActor
-    private func getRemoteService() -> RemoteXPCService<BoringNotchXPCHelperProtocol>? {
-        remoteService
+
+    private nonisolated func xpcService() async -> RemoteXPCService<BoringNotchXPCHelperProtocol> {
+        await MainActor.run { ensureRemoteService() }
     }
     
     @MainActor
@@ -89,17 +88,12 @@ final class XPCHelperClient: NSObject {
         monitoringTask?.cancel()
         monitoringTask = nil
     }
-
-    // Expose whether the client is actively monitoring (useful for tests/debug)
-    var isMonitoring: Bool {
-        return monitoringTask != nil
-    }
     
     // MARK: - Accessibility
 
     nonisolated func neteaseTrackMetadata(title: String, artist: String) async -> NetEaseTrackMetadata? {
         do {
-            let service = await MainActor.run { ensureRemoteService() }
+            let service = await xpcService()
             let data: Data? = try await service.withContinuation { service, continuation in
                 service.neteaseTrackMetadata(title, artist: artist) { data in
                     continuation.resume(returning: data)
@@ -112,9 +106,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func requestAccessibilityAuthorization() {
         Task {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             try? await service.withService { service in
                 service.requestAccessibilityAuthorization()
             }
@@ -123,9 +115,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func isAccessibilityAuthorized() async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             let result: Bool = try await service.withContinuation { service, continuation in
                 service.isAccessibilityAuthorized { authorized in
                     continuation.resume(returning: authorized)
@@ -142,9 +132,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func ensureAccessibilityAuthorization(promptIfNeeded: Bool) async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             let result: Bool = try await service.withContinuation { service, continuation in
                 service.ensureAccessibilityAuthorization(promptIfNeeded) { authorized in
                     continuation.resume(returning: authorized)
@@ -163,9 +151,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func isKeyboardBrightnessAvailable() async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             return try await service.withContinuation { service, continuation in
                 service.isKeyboardBrightnessAvailable { available in
                     continuation.resume(returning: available)
@@ -178,9 +164,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func currentKeyboardBrightness() async -> Float? {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             let result: NSNumber? = try await service.withContinuation { service, continuation in
                 service.currentKeyboardBrightness { value in
                     continuation.resume(returning: value)
@@ -194,9 +178,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func setKeyboardBrightness(_ value: Float) async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             return try await service.withContinuation { service, continuation in
                 service.setKeyboardBrightness(value) { success in
                     continuation.resume(returning: success)
@@ -211,9 +193,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func isScreenBrightnessAvailable() async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             return try await service.withContinuation { service, continuation in
                 service.isScreenBrightnessAvailable { available in
                     continuation.resume(returning: available)
@@ -226,9 +206,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func currentScreenBrightness() async -> Float? {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             let result: NSNumber? = try await service.withContinuation { service, continuation in
                 service.currentScreenBrightness { value in
                     continuation.resume(returning: value)
@@ -242,9 +220,7 @@ final class XPCHelperClient: NSObject {
     
     nonisolated func setScreenBrightness(_ value: Float) async -> Bool {
         do {
-            let service = await MainActor.run {
-                ensureRemoteService()
-            }
+            let service = await xpcService()
             return try await service.withContinuation { service, continuation in
                 service.setScreenBrightness(value) { success in
                     continuation.resume(returning: success)

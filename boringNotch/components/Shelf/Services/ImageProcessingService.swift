@@ -19,15 +19,6 @@ struct ImageConversionOptions {
     enum ImageFormat {
         case png, jpeg, heic, tiff, bmp
         
-        var utType: UTType {
-            switch self {
-            case .png: return .png
-            case .jpeg: return .jpeg
-            case .heic: return .heic
-            case .tiff: return .tiff
-            case .bmp: return .bmp
-            }
-        }
         
         var fileExtension: String {
             switch self {
@@ -52,7 +43,6 @@ final class ImageProcessingService {
     static let shared = ImageProcessingService()
     
     private init() {}
-    private let ciContext = CIContext(options: nil)
     
     // MARK: - Remove Background
     

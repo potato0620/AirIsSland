@@ -135,20 +135,6 @@ extension PlaybackResponse {
         )
     }
     
-    func with(elapsedSeconds: Double) -> PlaybackResponse {
-        PlaybackResponse(
-            isPaused: isPaused,
-            title: title,
-            artist: artist,
-            album: album,
-            elapsedSeconds: elapsedSeconds,
-            songDuration: songDuration,
-            imageSrc: imageSrc,
-            repeatMode: repeatMode,
-            isShuffled: isShuffled,
-            volume: volume
-        )
-    }
 }
 
 private func extractDouble(from dict: [String: Any]?, key: String) -> Double? {

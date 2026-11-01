@@ -123,12 +123,6 @@ struct ShelfItem: Identifiable, Codable, Equatable, Sendable {
         return ShelfStateViewModel.shared.resolveFileURL(for: self)
     }
     
-    var URL: URL? {
-        if case let .file(bookmark) = kind { return resolvedContext(for: bookmark)?.url }
-        else if case let .link(url) = kind { return url }
-        else { return nil }
-    }
-    
     var icon: NSImage {
         guard case .file = kind else {
             return Self.thumbnailSymbolImage(systemName: kind.iconSymbolName) ?? NSImage()

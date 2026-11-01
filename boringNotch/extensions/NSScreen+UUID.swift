@@ -28,9 +28,6 @@ extension NSScreen {
     }
     
     /// Get UUID to NSScreen mapping for all screens
-    @MainActor static var screensByUUID: [String: NSScreen] {
-        return NSScreenUUIDCache.shared.allScreens
-    }
 }
 
 /// Cache for UUID to NSScreen mappings to avoid repeated lookups
