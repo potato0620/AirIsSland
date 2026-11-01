@@ -1,0 +1,89 @@
+import Combine
+import Defaults
+import Foundation
+
+/// Runtime owner of scheduling and expiry. Providers submit facts; views observe one winner.
+@MainActor
+final class ActivityCoordinator: ObservableObject {
+    static let shared = ActivityCoordinator()
+
+    @Published private(set) var current: IslandActivity?
+    private var scheduler = ActivityScheduler()
+    private var expiryTask: Task<Void, Never>?
+    private var preferences = Set<AnyCancellable>()
+    private var musicIsActive = false
+
+    private init() {
+        Defaults.publisher(.musicLiveActivityEnabled).sink { [weak self] _ in
+            Task { @MainActor in self?.refreshMusic() }
+        }.store(in: &preferences)
+        Defaults.publisher(.hudReplacement).sink { [weak self] change in
+            guard !change.newValue else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                for kind in IslandActivityKind.allCases where kind.isSystemFeedback {
+                    self.scheduler.end(kind)
+                }
+                self.refresh()
+            }
+        }.store(in: &preferences)
+        Defaults.publisher(.showPowerStatusNotifications).sink { [weak self] change in
+            guard !change.newValue else { return }
+            Task { @MainActor in self?.end(.power) }
+        }.store(in: &preferences)
+        Defaults.publisher(.enableSneakPeek).sink { [weak self] change in
+            guard !change.newValue else { return }
+            Task { @MainActor in self?.end(.musicChange) }
+        }.store(in: &preferences)
+    }
+
+    func setMusicActive(_ active: Bool) {
+        guard musicIsActive != active else { return }
+        musicIsActive = active
+        refreshMusic()
+        if !active { end(.musicChange) }
+    }
+
+    func post(_ kind: IslandActivityKind, value: Double = 0, icon: String = "") {
+        if kind.isSystemFeedback && !Defaults[.hudReplacement] { return }
+        if kind == .power && !Defaults[.showPowerStatusNotifications] { return }
+        scheduler.submit(IslandActivity(kind: kind, value: min(max(value, 0), 1), icon: icon), at: now)
+        refresh()
+    }
+
+    func end(_ kind: IslandActivityKind) {
+        scheduler.end(kind)
+        refresh()
+    }
+
+    func updateFeedbackValue(_ value: Double) {
+        guard let current, current.kind.isSystemFeedback else { return }
+        post(current.kind, value: value, icon: current.icon)
+    }
+
+    private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    private func refreshMusic() {
+        if musicIsActive && Defaults[.musicLiveActivityEnabled] {
+            scheduler.submit(IslandActivity(kind: .music), at: now)
+        } else {
+            scheduler.end(.music)
+        }
+        refresh()
+    }
+
+    private func refresh() {
+        let timestamp = now
+        scheduler.expire(at: timestamp)
+        let selected = scheduler.current(at: timestamp)
+        if current != selected { current = selected }
+        expiryTask?.cancel()
+        guard let expiry = scheduler.nextExpiry else { return }
+        expiryTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0, expiry - timestamp))) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
+    }
+}

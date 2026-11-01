@@ -1,133 +1,21 @@
-# Contributing
+# 参与 AirIsland 开发
 
-Thank you for taking the time to contribute! ❤️
+本仓库独立维护 AirIsland。所有人工和 AI 贡献都必须先阅读 [AGENTS.md](AGENTS.md)、[设计规范](docs/DESIGN.md)与[三层架构](docs/ARCHITECTURE.md)。
 
-These guidelines help streamline the contribution process for everyone involved. By following them, you'll make it easier for maintainers to review your work and collaborate with you effectively.
+## 开始
 
-You can contribute in many ways: writing code, improving documentation, reporting bugs, requesting features, or creating tutorials and blog posts. Every contribution, large or small, helps make Boring Notch better.
+以本仓库当前 `main` 为基础创建功能分支；Codex 分支使用 `codex/` 前缀。使用 Xcode 打开 `AirIsland.xcodeproj`，选择 `AirIsland` scheme。源码目录、工程、构建目标和文件名统一使用 AirIsland 命名。
 
-## Table of Contents
+每个需求先解释其必要性与所属层。新活动必须明确真实来源、开始与结束、取消/失联策略、必要操作和权限。AirIsland 不接受为了填满空间而添加的常驻工具、假进度、未实现选项和装饰配置。
 
-- [Localizations](#localizations)
-- [Contributing Code](#contributing-code)
-  - [Before You Start](#before-you-start)
-  - [Setting Up Your Environment](#setting-up-your-environment)
-  - [Making Changes](#making-changes)
-  - [Pull Requests](#pull-requests)
-<!-- - [Code Style Guidelines](#code-style-guidelines) -->
-- [Reporting Bugs](#reporting-bugs)
-- [Feature Requests](#feature-requests)
-- [Getting Help](#getting-help)
+## 实现和验证
 
-## Localizations
+遵循活动层 → 调度层 → 呈现层；不得从来源直接控制窗口或在视图中复制调度逻辑。尽量复用已有服务和控件。设置复用四个分类，新增文案在 `AirIsland/Localizable.xcstrings` 内补齐简体中文，不依赖原仓库的 Crowdin 流程。
 
-Please submit all translations to [Crowdin](https://crowdin.com/project/boring-notch). New strings added to the `dev` branch from code changes will sync automatically to Crowdin, and Crowdin will automatically open a new PR with translations to allow us to integrate them.
+按 [测试说明](Tests/README.md)运行相关检查并完成 Release 构建。界面变化附渲染图或实际截图，明确其来源。模型测试不能替代真实交互验收。
 
-## Contributing Code
+## 改动说明
 
-### Before You Start
+提交或 PR 面向本仓库 `main`，说明具体问题、最终行为、三层职责、删除了哪些冗余项、已执行检查和未验证场景。保留上游署名、贡献历史和 GPL 许可。
 
-- **Check existing issues**: Before creating a new issue or starting work, search existing issues to avoid duplicates.
-- **Discuss major changes**: For significant features or major changes, please open an issue first to discuss your approach with maintainers and the community.
-<!-- - **Review the code style**: Familiarize yourself with our code style guidelines below to ensure consistency. -->
-
-> [!IMPORTANT]
-> All code contributions must be based on the `dev` branch, not `main`. Documentation changes should be based on `main` instead.
-
-### Setting Up Your Environment
-
-1. **Fork the repository**: Click the "Fork" button at the top of the repository page to create your own copy.
-
-2. **Clone your fork**:
-   ```bash
-   git clone https://github.com/{your-username}/boring.notch.git
-   cd boring.notch
-   ```
-   Replace `{your-username}` with your GitHub username.
-
-3. **Switch to the `dev` branch**:
-   ```bash
-   git checkout dev
-   ```
-   All code contributions must be based on the `dev` branch, not `main`. Documentation changes should be based on `main` instead.
-
-5. **Create a new feature branch**:
-   ```bash
-   git checkout -b feature/{your-feature-name}
-   ```
-   Replace `{your-feature-name}` with a descriptive name. Use lowercase letters, numbers, and hyphens only (e.g., `feature/add-dark-mode` or `fix/notification-crash`).
-
-### Making Changes
-
-1. **Make your changes**: Implement your feature or bug fix. Write clean, well-documented code <!-- following the project's style guidelines. -->
-
-2. **Test your changes**: Ensure your changes work as expected and don't break existing functionality.
-
-3. **Commit your changes**:
-   ```bash
-   git add .
-   git commit -m "Add descriptive commit message"
-   ```
-   Write clear, concise commit messages that explain what your changes do and why.
-
-4. **Keep your branch up to date**:
-   Regularly sync your branch with the latest changes from the `dev` branch to avoid conflicts.
-
-5. **Push to your fork**:
-   ```bash
-   git push origin feature/{your-feature-name}
-   ```
-
-### Pull Requests
-
-1. **Create a pull request**: Go to the original repository and click "New Pull Request." Select your feature branch and set the base branch to `dev`.
-
-2. **Write a detailed description**: Your PR should include:
-   - A clear title summarizing the changes
-   - A detailed description of what was changed and why
-   - Reference to any related issues (e.g., "Fixes #123" or "Relates to #456")
-   - Screenshots or screen recordings for UI changes
-
-3. **Respond to feedback**: Maintainers may request changes.
-
-4. **Be patient**: Reviews take time. Maintainers will get to your PR as soon as they can.
-
-<!-- ## Code Style Guidelines
-
-- Follow the existing code style and conventions used in the project
-- Write clear, self-documenting code with meaningful variable and function names
-- Add comments for complex logic or non-obvious implementations
-- Ensure your code is properly formatted before committing
-- Remove any debugging code, console logs, or commented-out code before submitting -->
-
-## Reporting Bugs
-
-When reporting bugs, please include:
-
-- A clear, descriptive title
-- Steps to reproduce the issue
-- Expected behavior vs. actual behavior
-- Screenshots or error messages if applicable
-- Your environment details (OS version, app version, etc.)
-
-## Feature Requests
-
-Feature requests are welcome! Please:
-
-- Check if the feature has already been requested
-- Clearly describe the feature and its use case
-- Explain why this feature would be valuable to users
-- Be open to discussion and alternative approaches
-
-## Getting Help
-
-If you need help or have questions:
-
-- Check the project documentation
-- Search existing issues for similar questions
-- Open a new issue with the "question" label
-- Join our [community Discord server](https://discord.com/servers/boring-notch-1269588937320566815)
-
----
-
-Thank you for contributing to Boring Notch! Your efforts help make this project better for everyone. 🎉
+报告问题时提供系统/应用版本、媒体来源、操作步骤、预期与实际结果；日志应先移除个人敏感信息。功能建议还应说明为什么必须出现在岛上、什么时候应该消失。

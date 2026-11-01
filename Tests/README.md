@@ -1,19 +1,35 @@
-# Media playback regression tests
+# 回归与验收
 
-Run with a full Xcode installation selected:
+需要选择完整 Xcode；也可以给命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`。
 
 ```sh
+bash Tests/run-activity-tests.sh
 bash Tests/run-media-playback-tests.sh
+python3 Tests/check-architecture.py
+python3 -m unittest discover -s .github/scripts/tests
 ```
 
-These XCTest cases compile the production stream reader and state reducer directly,
-without downloading the app's dependencies. They cover fragmented UTF-8 metadata,
-large artwork, full snapshots and partial updates (including explicit null values),
-playback timestamps, delivery while the pipe writer remains open, EOF,
-cancellation, and malformed messages.
+## 活动与架构
 
-NetEase regression cases replay its valid-track/pause/empty-snapshot sequence,
-check real pause/resume and termination, correct stale duration/artwork using
-playback-queue metadata, and reject late results from a preceding track.
+活动测试直接编译生产 `IslandActivity`、`ActivityScheduler` 和 `IslandPresentation`，不依赖 SwiftUI 或下载包。使用确定性时间验证：空闲、持续活动结束、系统反馈抢占与音乐恢复、按键合并、不同反馈替换、优先级、隐藏活动过期不补播、快速切换和呈现映射。
 
-They do not launch a music player or replace a real playback acceptance check.
+架构脚本限制活动模型/调度目录的依赖，防止重新启用原有的两条展示状态旁路。这是静态辅助检查，不是完整 Swift 依赖分析；新增业务来源与视图仍需按三层规范人工审查。
+
+## 媒体与封面
+
+媒体测试直接编译生产流读取器、状态模型与封面转换模型，覆盖分片 UTF-8、巨大封面、完整/增量/空快照、播放时间戳、EOF、取消、无效消息、网易云暂停/清空/队列元数据的序列、旧歌曲异步结果及高清封面原位更新。
+
+这些检查不启动音乐应用，不能替代真实播放验收。
+
+## 界面和真实应用验收
+
+Release 构建必须通过。影响界面的变更还需验证：
+
+- 设置四分类、活动子页返回、中文文案、窗口最小尺寸。
+- 展开音乐与文件暂存的不同宽度，长歌曲名、暂停和无播放内容。
+- 连续切歌，高清封面到达只更新一次，不重复翻转。
+- 播放中调音量/亮度，短暂反馈结束后恢复音乐；展开时反馈留在顶部。
+- 活动开关即时生效，辅助功能拒绝后可恢复；首次使用不再请求已移除的权限。
+- 全屏、无刘海屏、多显示器、减少动态效果、拖放/分享防误收起。
+
+提交说明必须分别记录模型测试、构建、离屏渲染和真实应用操作；未执行的项目明确标记，不能用“测试通过”概括全部验收。

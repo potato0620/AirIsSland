@@ -27,7 +27,7 @@ jobs:
         xcode:
           - ^16
         scheme:
-          - boringNotch
+          - AirIsland
     # macos-latest now resolves to macos-26, which does not ship Xcode 16.
     # Keep this legacy main-branch build on an image with the requested toolchain.
     runs-on: macos-15
@@ -37,6 +37,10 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Test Now Playing stream handling
       run: bash Tests/run-media-playback-tests.sh
+    - name: Check activity dependency boundaries
+      run: python3 Tests/check-architecture.py
+    - name: Test activity scheduling and presentation
+      run: bash Tests/run-activity-tests.sh
     - # TODO: pin to immutable SHA
       uses: mxcl/xcodebuild@d3ee9b419c1be9a988086c58fe0988f32d99cfc5 # v3.6.0
       with:

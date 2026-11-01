@@ -1,23 +1,11 @@
-## Pull Request template
-Please, go through these steps before you submit a PR.
+## 问题与结果
 
-1. Make sure that your PR is not a duplicate.
-2. If not, then make sure that:
+说明触发场景和修改后的行为。
 
-    a. Your changes MUST NOT change translations. Please submit translations on [Crowdin](https://crowdin.com/project/boring-notch).
+## 三层职责
 
-    b. You have tested the code yourself to ensure it builds correctly and functions as intended.
+说明本次涉及的活动层、调度层或呈现层，以及为何有必要。遵守 [AGENTS.md](../AGENTS.md) 与 [设计规范](../docs/DESIGN.md)，删除无效开关和无关改动。
 
-3. **After** these steps, you're ready to open a pull request.
+## 验证
 
-    a. Your pull request MUST NOT target the `main` branch on this repository. You probably want to target `dev` instead.
-
-    b. Give a descriptive title to your PR.
-
-    c. Describe your changes. PR should also include screen recording or screenshots to show the changes that were made.
-
-    d. Put `closes #XXXX` in your description to link your PR to the issue(s) that it fixes (if such).
-
-IMPORTANT: Please review the [CONTRIBUTING.md](../CONTRIBUTING.md) file for detailed contributing guidelines.
-
-**PLEASE REMOVE THIS TEMPLATE BEFORE SUBMITTING**
+记录相关测试、Release 构建、界面截图，以及尚未执行的真实交互验收。新增文案补齐简体中文。PR 基于本仓库 main。

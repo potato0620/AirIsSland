@@ -1,11 +1,5 @@
-# Security Policy
+# 安全问题反馈
 
-## Reporting a Vulnerability
+AirIsland 由本仓库独立维护。安全问题请通过本仓库 [GitHub 安全公告](https://github.com/potato0620/AirIsSland/security/advisories/new) 私下报告，避免在公开 Issue 中包含访问令牌、个人文件或可直接利用的细节。
 
-The Bored Team and community take security bugs in Boring Notch seriously. We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
-
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/TheBoredTeam/boring.notch/security/advisories/new) tab.
-
-The Bored Team will send a response indicating the next steps in handling your report. After the initial reply to your report, we will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
-
-Report security bugs in third-party dependencies to the person or team maintaining the package or dependency.
+请提供受影响版本、复现条件、影响和可行的修复建议。第三方依赖的问题也应反馈给其维护者。保留原项目与依赖的许可和版权归属。

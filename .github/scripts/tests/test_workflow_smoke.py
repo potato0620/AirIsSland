@@ -33,9 +33,9 @@ class WorkflowSmokeTests(unittest.TestCase):
 
     def test_nightly_uses_the_fixed_rolling_tag_and_asset(self) -> None:
         self.assertIn("TAG: nightly", self.nightly)
-        self.assertIn("ASSET_NAME: boringNotch-nightly.dmg", self.nightly)
+        self.assertIn("ASSET_NAME: AirIsland-nightly.dmg", self.nightly)
         self.assertNotRegex(self.nightly, r'TAG="nightly-\$')
-        self.assertNotRegex(self.nightly, r"ASSET_NAME=\"boringNotch-\$")
+        self.assertNotRegex(self.nightly, r"ASSET_NAME=\"AirIsland-\$")
 
     def test_nightly_uses_the_rolling_release_title(self) -> None:
         self.assertIn("TITLE: Latest Nightly", self.nightly)
@@ -46,7 +46,7 @@ class WorkflowSmokeTests(unittest.TestCase):
         # TAG is pinned to `nightly` below, so this prefix always resolves to
         # .../releases/download/nightly/.
         self.assertIn(
-            "https://github.com/TheBoredTeam/boring.notch/releases/download/${TAG}/",
+            "https://github.com/potato0620/AirIsSland/releases/download/${TAG}/",
             self.nightly,
         )
         self.assertIn("TAG: nightly", self.nightly)
@@ -308,11 +308,9 @@ class WorkflowSmokeTests(unittest.TestCase):
             self.assertNotIn(removed, self.nightly)
 
     def test_built_product_is_named_airisland(self) -> None:
-        # The Xcode product and app bundle are "AirIsland", while the public
-        # DMG keeps the legacy boringNotch.dmg name for download/appcast
-        # compatibility. The project/target/scheme remain boringNotch.
+        # Project, target, scheme, executable and current download assets use AirIsland.
         pbxproj = (
-            REPOSITORY_ROOT / "boringNotch.xcodeproj" / "project.pbxproj"
+            REPOSITORY_ROOT / "AirIsland.xcodeproj" / "project.pbxproj"
         ).read_text(encoding="utf-8")
         self.assertEqual(pbxproj.count('PRODUCT_NAME = "AirIsland";'), 2)
         self.assertEqual(pbxproj.count('INFOPLIST_KEY_CFBundleName = "AirIsland";'), 2)
@@ -328,7 +326,7 @@ class WorkflowSmokeTests(unittest.TestCase):
         self.assertNotIn("Release/$APP_NAME.dmg", self.build_reusable)
 
         # Release pipeline: draft download, artifact download, release upload,
-        # embedded notes, and the Homebrew cask all use the legacy DMG name.
+        # embedded notes, and the cask definition all use the project DMG name.
         self.assertIn("APP_NAME: AirIsland", self.release)
         self.assertIn('--pattern "$PROJECT_NAME.dmg"', self.release)
         self.assertIn('name: ${{ env.PROJECT_NAME }}.dmg', self.release)
@@ -337,7 +335,6 @@ class WorkflowSmokeTests(unittest.TestCase):
         self.assertIn("/${PROJECT_NAME}.dmg", self.release)
         self.assertIn('app "AirIsland.app"', self.release)
         self.assertNotIn("Boring%20Notch.dmg", self.release)
-        self.assertNotIn('app "boringNotch.app"', self.release)
 
         # Nightly: downloads the compatibility artifact, then renames it to the
         # fixed rolling asset name (which is intentionally unchanged).
@@ -355,7 +352,7 @@ class WorkflowSmokeTests(unittest.TestCase):
         self.assertIn("updater/appcast.xml", self.release)
         self.assertIn("publish_stable", self.release)
         self.assertIn("publish_beta", self.release)
-        self.assertNotIn("boringNotch-nightly.dmg", self.release)
+        self.assertNotIn("AirIsland-nightly.dmg", self.release)
         self.assertNotIn('TAG: nightly', self.release)
         self.assertNotIn("actions/attest", self.release)
         self.assertNotIn("artifact-metadata", self.release)

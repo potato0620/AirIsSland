@@ -53,3 +53,6 @@ build/
 *.xcarchive
 *.dSYM
 
+
+# Canonical project scheme
+!AirIsland.xcodeproj/xcshareddata/xcschemes/*.xcscheme

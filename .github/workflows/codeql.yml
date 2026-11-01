@@ -68,9 +68,9 @@ jobs:
       run: |
         xcodebuild \
           -resolvePackageDependencies \
-          -project boringNotch.xcodeproj \
-          -scheme boringNotch \
-          -clonedSourcePackagesDirPath "$RUNNER_TEMP/boringNotch-source-packages" \
+          -project AirIsland.xcodeproj \
+          -scheme AirIsland \
+          -clonedSourcePackagesDirPath "$RUNNER_TEMP/AirIsland-source-packages" \
           -onlyUsePackageVersionsFromResolvedFile
 
     # Add any setup steps before running the `github/codeql-action/init` action.
@@ -98,12 +98,12 @@ jobs:
         set -o pipefail
 
         xcodebuild \
-          -project boringNotch.xcodeproj \
-          -scheme boringNotch \
+          -project AirIsland.xcodeproj \
+          -scheme AirIsland \
           -configuration Release \
           -destination "platform=macOS" \
-          -derivedDataPath "$RUNNER_TEMP/boringNotch-derived-data" \
-          -clonedSourcePackagesDirPath "$RUNNER_TEMP/boringNotch-source-packages" \
+          -derivedDataPath "$RUNNER_TEMP/AirIsland-derived-data" \
+          -clonedSourcePackagesDirPath "$RUNNER_TEMP/AirIsland-source-packages" \
           -onlyUsePackageVersionsFromResolvedFile \
           ONLY_ACTIVE_ARCH=YES \
           CODE_SIGNING_ALLOWED=NO \

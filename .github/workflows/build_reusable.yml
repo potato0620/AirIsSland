@@ -37,7 +37,7 @@ jobs:
     permissions:
       contents: read
     env:
-      PROJECT_NAME: boringNotch
+      PROJECT_NAME: AirIsland
       APP_NAME: AirIsland
       EXPORT_METHOD: development
       VERSION_INPUT: ${{ inputs.version }}
