@@ -14,6 +14,13 @@ let defaultImage: NSImage = .init(
     accessibilityDescription: "Album Art"
 )!
 
+enum AlbumArtFlipDirection {
+    case next
+    case previous
+
+    var rotation: Double { self == .next ? -180 : 180 }
+}
+
 class MusicManager: ObservableObject {
     // MARK: - Properties
     static let shared = MusicManager()
@@ -32,6 +39,7 @@ class MusicManager: ObservableObject {
     @Published var songTitle: String = "I'm Handsome"
     @Published var artistName: String = "Me"
     @Published var albumArt: NSImage = defaultImage
+    @Published private(set) var albumArtFlipDirection: AlbumArtFlipDirection = .next
     @Published var isPlaying = false
     @Published var album: String = "Self Love"
     @Published var isPlayerIdle: Bool = true
@@ -61,9 +69,8 @@ class MusicManager: ObservableObject {
     private var lastArtworkArtist: String = "Me"
     private var lastArtworkAlbum: String = "Self Love"
     private var lastArtworkBundleIdentifier: String? = nil
-
-    @Published var isFlipping: Bool = false
-    private var flipWorkItem: DispatchWorkItem?
+    private var lastArtworkSourceTrackIdentifier: String?
+    private var requestedArtworkFlip: (direction: AlbumArtFlipDirection, requestedAt: Date)?
 
     @Published var isTransitioning: Bool = false
     private var transitionWorkItem: DispatchWorkItem?
@@ -100,7 +107,6 @@ class MusicManager: ObservableObject {
         debounceIdleTask?.cancel()
         cancellables.removeAll()
         controllerCancellables.removeAll()
-        flipWorkItem?.cancel()
         transitionWorkItem?.cancel()
 
         // Release active controller
@@ -166,9 +172,7 @@ class MusicManager: ObservableObject {
     }
 
     private func setActiveController(_ controller: any MediaControllerProtocol) {
-        // Cancel any existing flip animation
-        flipWorkItem?.cancel()
-
+        requestedArtworkFlip = nil
         // Set new active controller
         activeController = controller
         
@@ -199,10 +203,23 @@ class MusicManager: ObservableObject {
         let artistChanged = state.artist != self.lastArtworkArtist
         let albumChanged = state.album != self.lastArtworkAlbum
         let bundleChanged = state.bundleIdentifier != self.lastArtworkBundleIdentifier
+        let sourceTrackChanged = state.sourceTrackIdentifier != nil
+            && state.sourceTrackIdentifier != self.lastArtworkSourceTrackIdentifier
+        if titleChanged || bundleChanged || sourceTrackChanged {
+            if let request = requestedArtworkFlip,
+               Date().timeIntervalSince(request.requestedAt) < 5 {
+                albumArtFlipDirection = request.direction
+            } else {
+                albumArtFlipDirection = .next
+                requestedArtworkFlip = nil
+            }
+            // Title, item identifier and artwork may arrive separately. Retain
+            // the command briefly so these updates keep the same direction.
+        }
 
         // Check for artwork changes
         let artworkChanged = state.artwork != nil && state.artwork != self.artworkData
-        let hasContentChange = titleChanged || artistChanged || albumChanged || artworkChanged || bundleChanged
+        let hasContentChange = titleChanged || artistChanged || albumChanged || artworkChanged || bundleChanged || sourceTrackChanged
 
         // Handle artwork and visual transitions for changed content
         if hasContentChange {
@@ -213,7 +230,6 @@ class MusicManager: ObservableObject {
                 // Keep a real cover while the same player's next cover loads.
                 // Use the app icon on first load or when the player changes.
                 if let appIconImage = AppIconAsNSImage(for: state.bundleIdentifier) {
-                    self.triggerFlipAnimation()
                     self.usingAppIconForArtwork = true
                     self.updateAlbumArt(newAlbumArt: appIconImage)
                 }
@@ -226,6 +242,7 @@ class MusicManager: ObservableObject {
             self.lastArtworkArtist = state.artist
             self.lastArtworkAlbum = state.album
             self.lastArtworkBundleIdentifier = state.bundleIdentifier
+            self.lastArtworkSourceTrackIdentifier = state.sourceTrackIdentifier
 
             // Only update sneak peek if there's actual content and something changed
             if !state.title.isEmpty && !state.artist.isEmpty && state.isPlaying {
@@ -506,22 +523,6 @@ class MusicManager: ObservableObject {
         return syncedLyrics[idx].text
     }
 
-    private func triggerFlipAnimation() {
-        // Cancel any existing animation
-        flipWorkItem?.cancel()
-
-        // Create a new animation
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.isFlipping = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                self?.isFlipping = false
-            }
-        }
-
-        flipWorkItem = workItem
-        DispatchQueue.main.async(execute: workItem)
-    }
-
     private func updateArtwork(_ artworkData: Data) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -529,7 +530,6 @@ class MusicManager: ObservableObject {
             if let artworkImage = NSImage(data: artworkData) {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.artworkData == artworkData else { return }
-                    self.triggerFlipAnimation()
                     self.usingAppIconForArtwork = false
                     self.updateAlbumArt(newAlbumArt: artworkImage)
                 }
@@ -632,12 +632,16 @@ class MusicManager: ObservableObject {
     }
 
     func nextTrack() {
+        albumArtFlipDirection = .next
+        requestedArtworkFlip = (.next, Date())
         Task {
             await activeController?.nextTrack()
         }
     }
 
     func previousTrack() {
+        albumArtFlipDirection = .previous
+        requestedArtworkFlip = (.previous, Date())
         Task {
             await activeController?.previousTrack()
         }

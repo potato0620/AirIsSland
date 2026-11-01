@@ -388,13 +388,11 @@ struct ContentView: View {
     @ViewBuilder
     func MusicLiveActivity() -> some View {
         HStack {
-            Image(nsImage: musicManager.albumArt)
-                .resizable()
-                .clipped()
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: MusicPlayerImageSizes.cornerRadiusInset.closed)
-                )
+            SpringAlbumArtwork(
+                image: musicManager.albumArt,
+                direction: musicManager.albumArtFlipDirection,
+                cornerRadius: MusicPlayerImageSizes.cornerRadiusInset.closed
+            )
                 .matchedGeometryEffect(id: "albumArt", in: albumArtNamespace)
                 .frame(
                     width: max(0, vm.effectiveClosedNotchHeight - 12),

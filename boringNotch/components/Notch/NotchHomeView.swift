@@ -82,17 +82,14 @@ struct AlbumArtView: View {
                 
 
     private var albumArtImage: some View {
-        Image(nsImage: musicManager.albumArt)
-            .resizable()
-            .aspectRatio(1, contentMode: .fit)
+        SpringAlbumArtwork(
+            image: musicManager.albumArt,
+            direction: musicManager.albumArtFlipDirection,
+            cornerRadius: Defaults[.cornerRadiusScaling]
+                ? MusicPlayerImageSizes.cornerRadiusInset.opened
+                : MusicPlayerImageSizes.cornerRadiusInset.closed
+        )
             .matchedGeometryEffect(id: "albumArt", in: albumArtNamespace)
-            .clipped()
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: Defaults[.cornerRadiusScaling]
-                        ? MusicPlayerImageSizes.cornerRadiusInset.opened
-                        : MusicPlayerImageSizes.cornerRadiusInset.closed)
-            )
     }
 
     @ViewBuilder
@@ -106,6 +103,117 @@ struct AlbumArtView: View {
                 .transition(.scale.combined(with: .opacity))
                 .zIndex(2)
         }
+    }
+}
+
+/// Reuse the same two faces for each half-turn. Rapid updates keep only the
+/// newest pending cover, so a completed animation cannot restore an old track.
+struct SpringAlbumArtwork: View {
+    let image: NSImage
+    let direction: AlbumArtFlipDirection
+    let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var frontImage: NSImage
+    @State private var backImage: NSImage
+    @State private var targetImage: NSImage
+    @State private var pendingCover: (image: NSImage, direction: AlbumArtFlipDirection)?
+    @State private var angle: Double = 0
+    @State private var isAnimating = false
+    @State private var animationID = UUID()
+
+    init(image: NSImage, direction: AlbumArtFlipDirection, cornerRadius: CGFloat) {
+        self.image = image
+        self.direction = direction
+        self.cornerRadius = cornerRadius
+        _frontImage = State(initialValue: image)
+        _backImage = State(initialValue: image)
+        _targetImage = State(initialValue: image)
+    }
+
+    var body: some View {
+        ZStack {
+            face(frontImage)
+                .modifier(AlbumArtworkFlipFace(angle: angle))
+            face(backImage)
+                .modifier(AlbumArtworkFlipFace(angle: angle - 180))
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .onChange(of: ObjectIdentifier(image)) { _, _ in flip(to: image, direction: direction) }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { reset(to: image) }
+        }
+        .onAppear { reset(to: image) }
+        .onDisappear { reset(to: image) }
+    }
+
+    private func face(_ image: NSImage) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    private func flip(to nextImage: NSImage, direction: AlbumArtFlipDirection) {
+        guard !reduceMotion else { reset(to: nextImage); return }
+        guard nextImage !== targetImage else { pendingCover = nil; return }
+        guard !isAnimating else { pendingCover = (nextImage, direction); return }
+
+        let id = UUID()
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if Int((angle / 180).rounded()) % 2 == 0 {
+                backImage = nextImage
+            } else {
+                frontImage = nextImage
+            }
+            targetImage = nextImage
+            isAnimating = true
+            animationID = id
+        }
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.68), completionCriteria: .removed) {
+            angle += direction.rotation
+        } completion: {
+            guard animationID == id else { return }
+            isAnimating = false
+            if let pending = pendingCover {
+                pendingCover = nil
+                flip(to: pending.image, direction: pending.direction)
+            }
+        }
+    }
+
+    private func reset(to image: NSImage) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            animationID = UUID()
+            frontImage = image
+            backImage = image
+            targetImage = image
+            pendingCover = nil
+            isAnimating = false
+            angle = 0
+        }
+    }
+}
+
+private struct AlbumArtworkFlipFace: AnimatableModifier {
+    var angle: Double
+
+    var animatableData: Double {
+        get { angle }
+        set { angle = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let radians = angle * .pi / 180
+        content
+            // Cull at the rendered angle, rather than cross-fading mirrored faces.
+            .opacity(cos(radians) > 0 ? 1 : 0)
+            .brightness(-0.10 * abs(sin(radians)))
+            .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.55)
+            .scaleEffect(1 - 0.045 * abs(sin(radians)))
     }
 }
 
