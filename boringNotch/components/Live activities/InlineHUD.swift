@@ -15,6 +15,8 @@ struct InlineHUD: View {
     @Binding var icon: String
     @Binding var hoverAnimation: Bool
     @Binding var gestureProgress: CGFloat
+    private var hudHeight: CGFloat { max(24, vm.closedNotchSize.height) }
+
     var body: some View {
         HStack {
             HStack(spacing: 5) {
@@ -61,7 +63,7 @@ struct InlineHUD: View {
                     .allowsTightening(true)
                     .contentTransition(.numericText())
             }
-            .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.notchSize.height - (hoverAnimation ? 0 : 12), alignment: .leading)
+            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
             
             Rectangle()
                 .fill(.black)
@@ -83,6 +85,8 @@ struct InlineHUD: View {
                                 VolumeManager.shared.setAbsolute(Float32(v))
                             } else if type == .brightness {
                                 BrightnessManager.shared.setAbsolute(value: Float32(v))
+                            } else if type == .backlight {
+                                KeyboardBacklightManager.shared.setAbsolute(value: Float32(v))
                             }
                         })
                         if (type == .volume && value.isZero) {
@@ -106,9 +110,9 @@ struct InlineHUD: View {
                 }
             }
             .padding(.trailing, 4)
-            .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.closedNotchSize.height - (hoverAnimation ? 0 : 12), alignment: .center)
+            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .center)
         }
-        .frame(height: vm.closedNotchSize.height + (hoverAnimation ? 8 : 0), alignment: .center)
+        .frame(height: max(0, hudHeight + (hoverAnimation ? 8 : 0)), alignment: .center)
     }
     
     func SpeakerSymbol(_ value: CGFloat) -> String {
@@ -137,7 +141,7 @@ struct InlineHUD: View {
         }
     }
     
-    func Type2Name(_ type: SneakContentType) -> String {
+    func Type2Name(_ type: SneakContentType) -> LocalizedStringKey {
         switch(type) {
             case .volume:
                 return "Volume"

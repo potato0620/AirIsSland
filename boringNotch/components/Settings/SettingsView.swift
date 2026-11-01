@@ -360,7 +360,6 @@ struct Charge: View {
 }
 
 struct HUD: View {
-    @Default(.inlineHUD) var inlineHUD
     @Default(.enableGradient) var enableGradient
     @Default(.optionKeyAction) var optionKeyAction
     @Default(.hudReplacement) var hudReplacement
@@ -445,21 +444,6 @@ struct HUD: View {
             .disabled(!hudReplacement)
             
             Section {
-                Picker("HUD style", selection: $inlineHUD) {
-                    Text("Default")
-                        .tag(false)
-                    Text("Inline")
-                        .tag(true)
-                }
-                .onChange(of: Defaults[.inlineHUD]) {
-                    if Defaults[.inlineHUD] {
-                        withAnimation {
-                            Defaults[.systemEventIndicatorShadow] = false
-                            Defaults[.enableGradient] = false
-                        }
-                    }
-                }
-                
                 Defaults.Toggle(key: .showClosedNotchHUDPercentage) {
                     Text("Show percentage")
                 }
@@ -493,7 +477,6 @@ struct Media: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Default(.hideNotchOption) var hideNotchOption
     @Default(.enableSneakPeek) private var enableSneakPeek
-    @Default(.sneakPeekStyles) var sneakPeekStyles
 
 
     var body: some View {
@@ -540,11 +523,6 @@ struct Media: View {
                     isOn: $coordinator.musicLiveActivityEnabled.animation()
                 )
                 Toggle("Show sneak peek on playback changes", isOn: $enableSneakPeek)
-                Picker("Sneak Peek Style", selection: $sneakPeekStyles) {
-                    ForEach(SneakPeekStyle.allCases) { style in
-                        Text(LocalizedStringKey(style.rawValue)).tag(style)
-                    }
-                }
                 HStack {
                     Stepper(value: $waitInterval, in: 0...10, step: 1) {
                         HStack {
@@ -1432,7 +1410,7 @@ struct Shortcuts: View {
                 Text("Media")
             } footer: {
                 Text(
-                    "Sneak Peek shows the media title and artist under the notch for a few seconds."
+                    "Sneak Peek briefly expands the island to show the song title and artist."
                 )
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(.secondary)
