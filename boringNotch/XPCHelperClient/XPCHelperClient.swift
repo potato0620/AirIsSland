@@ -96,6 +96,19 @@ final class XPCHelperClient: NSObject {
     }
     
     // MARK: - Accessibility
+
+    nonisolated func neteaseTrackMetadata(title: String, artist: String) async -> NetEaseTrackMetadata? {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            let data: Data? = try await service.withContinuation { service, continuation in
+                service.neteaseTrackMetadata(title, artist: artist) { data in
+                    continuation.resume(returning: data)
+                }
+            }
+            guard let data else { return nil }
+            return try JSONDecoder().decode(NetEaseTrackMetadata.self, from: data)
+        } catch { return nil }
+    }
     
     nonisolated func requestAccessibilityAuthorization() {
         Task {

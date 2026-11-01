@@ -68,6 +68,16 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     private var process: Process?
     private var pipeHandler: JSONLinesPipeHandler?
     private var streamTask: Task<Void, Never>?
+    private var restartTask: Task<Void, Never>?
+    private var pendingPauseTask: Task<Void, Never>?
+    private var playbackSession = NowPlayingPlaybackSession()
+    private var terminationObserver: AnyCancellable?
+    private var metadataTask: Task<Void, Never>?
+    private var metadataLookupKey: String?
+    private var reconciledMetadataKey: String?
+    private var reconciledMetadata: NetEaseTrackMetadata?
+    private var reconciledArtwork: Data?
+    private var artworkCache: [URL: Data] = [:]
 
     // MARK: - Initialization
     init?() {
@@ -96,11 +106,24 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         MRMediaRemoteSetRepeatModeFunction = unsafeBitCast(
             MRMediaRemoteSetRepeatModePointer, to: (@convention(c) (Int) -> Void).self)
 
+        terminationObserver = NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didTerminateApplicationNotification)
+            .sink { [weak self] notification in
+                guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      let bundleIdentifier = app.bundleIdentifier else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.publish(self.playbackSession.sourceDidTerminate(bundleIdentifier: bundleIdentifier))
+                }
+            }
         Task { await setupNowPlayingObserver() }
     }
 
     deinit {
         streamTask?.cancel()
+        restartTask?.cancel()
+        pendingPauseTask?.cancel()
+        metadataTask?.cancel()
         
         if let pipeHandler = self.pipeHandler {
             Task { await pipeHandler.close()
@@ -110,7 +133,6 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         if let process = self.process {
             if process.isRunning {
                 process.terminate()
-                process.waitUntilExit()
             }
         }
 
@@ -188,6 +210,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     
     // MARK: - Setup Methods
     private func setupNowPlayingObserver() async {
+        guard process?.isRunning != true else { return }
         let process = Process()
         guard
             let scriptURL = Bundle.main.url(forResource: "mediaremote-adapter", withExtension: "pl"),
@@ -198,6 +221,8 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         }
         
         process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        // Preserve even short-lived valid snapshots before NetEase clears its
+        // media session. Coalescing these can erase the new track entirely.
         process.arguments = [scriptURL.path, frameworkPath, "stream"]
         
         let pipeHandler = JSONLinesPipeHandler()
@@ -208,97 +233,122 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
 
         do {
             try process.run()
-            streamTask = Task { [weak self] in
-                await self?.processJSONStream()
+            try await pipeHandler.closeWritingEnd()
+            // Hold the pipe, not the controller, while waiting for the next update.
+            // Otherwise the controller never deinitializes when the source changes.
+            streamTask = Task { [weak self, pipeHandler] in
+                do {
+                    try await pipeHandler.readJSONLines(as: NowPlayingUpdate.self) { [weak self] update in
+                        await self?.handleAdapterUpdate(update)
+                    }
+                } catch {
+                    if !Task.isCancelled {
+                        print("Now Playing stream interrupted: \(error)")
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                await self?.scheduleObserverRestart()
             }
         } catch {
-            assertionFailure("Failed to launch mediaremote-adapter.pl: \(error)")
+            print("Failed to launch mediaremote-adapter.pl: \(error)")
+            await scheduleObserverRestart()
         }
     }
 
-    // MARK: - Async Stream Processing
-    private func processJSONStream() async {
-        guard let pipeHandler = self.pipeHandler else { return }
-        
-        await pipeHandler.readJSONLines(as: NowPlayingUpdate.self) { [weak self] update in
-            await self?.handleAdapterUpdate(update)
-        }
-    }
-
-    // MARK: - Update Methods
-    private func handleAdapterUpdate(_ update: NowPlayingUpdate) async {
-        let payload = update.payload
-        let diff = update.diff ?? false
-
-        var newPlaybackState = PlaybackState(bundleIdentifier: playbackState.bundleIdentifier)
-        
-        newPlaybackState.title = payload.title ?? (diff ? self.playbackState.title : "")
-        newPlaybackState.artist = payload.artist ?? (diff ? self.playbackState.artist : "")
-        newPlaybackState.album = payload.album ?? (diff ? self.playbackState.album : "")
-        newPlaybackState.duration = payload.duration ?? (diff ? self.playbackState.duration : 0)
-        
-        if let elapsedTime = payload.elapsedTime {
-            newPlaybackState.currentTime = elapsedTime
-        } else if diff {
-            if payload.playing == false {
-                let timeSinceLastUpdate = Date().timeIntervalSince(self.playbackState.lastUpdated)
-                newPlaybackState.currentTime = self.playbackState.currentTime + (self.playbackState.playbackRate * timeSinceLastUpdate)
-            } else {
-                newPlaybackState.currentTime = self.playbackState.currentTime
+    @MainActor
+    private func handleAdapterUpdate(_ update: NowPlayingUpdate) {
+        let now = Date()
+        let neteaseIsRunning = !NSRunningApplication.runningApplications(
+            withBundleIdentifier: NowPlayingPlaybackSession.neteaseBundleIdentifier
+        ).isEmpty
+        publish(playbackSession.receive(update, neteaseIsRunning: neteaseIsRunning, now: now))
+        reconcileNetEaseMetadata()
+        pendingPauseTask?.cancel()
+        pendingPauseTask = nil
+        if let deadline = playbackSession.pauseDeadline {
+            pendingPauseTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+                    try Task.checkCancellation()
+                    guard let self else { return }
+                    self.publish(self.playbackSession.confirmPendingPause())
+                } catch { }
             }
-        } else {
-            newPlaybackState.currentTime = 0
         }
-
-        
-        if let shuffleMode = payload.shuffleMode {
-            newPlaybackState.isShuffled = shuffleMode != 1
-        } else if !diff {
-            newPlaybackState.isShuffled = false
-        } else {
-            newPlaybackState.isShuffled = self.playbackState.isShuffled
-        }
-        if let repeatModeValue = payload.repeatMode {
-            newPlaybackState.repeatMode = RepeatMode(rawValue: repeatModeValue) ?? .off
-        } else if !diff {
-            newPlaybackState.repeatMode = .off
-        } else {
-            newPlaybackState.repeatMode = self.playbackState.repeatMode
-        }
-
-        if let artworkDataString = payload.artworkData {
-            newPlaybackState.artwork = Data(
-                base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        } else if !diff {
-            newPlaybackState.artwork = nil
-        }
-
-        if let dateString = payload.timestamp,
-           let date = ISO8601DateFormatter().date(from: dateString) {
-            newPlaybackState.lastUpdated = date
-        } else if !diff {
-            newPlaybackState.lastUpdated = Date()
-        } else {
-            newPlaybackState.lastUpdated = self.playbackState.lastUpdated
-        }
-
-        newPlaybackState.playbackRate = payload.playbackRate ?? (diff ? self.playbackState.playbackRate : 1.0)
-        newPlaybackState.isPlaying = payload.playing ?? (diff ? self.playbackState.isPlaying : false)
-        newPlaybackState.bundleIdentifier = (
-            payload.parentApplicationBundleIdentifier ??
-            payload.bundleIdentifier ??
-            (diff ? self.playbackState.bundleIdentifier : "")
-        )
-        
-        newPlaybackState.volume = payload.volume ?? (diff ? self.playbackState.volume : 0.5)
-        
-        self.playbackState = newPlaybackState
-        
-        // Fetch favorite state for supported apps asynchronously
-        // await fetchFavoriteStateIfSupported()
     }
-    
+
+    @MainActor
+    private func reconcileNetEaseMetadata() {
+        let state = playbackSession.state
+        guard state.bundleIdentifier == NowPlayingPlaybackSession.neteaseBundleIdentifier,
+              !state.title.isEmpty else {
+            metadataTask?.cancel()
+            metadataLookupKey = nil
+            return
+        }
+        let key = "\(state.sourceTrackIdentifier ?? state.artist)\u{0}\(state.title)"
+        if reconciledMetadataKey == key, let metadata = reconciledMetadata {
+            publish(playbackSession.reconcile(metadata, artwork: reconciledArtwork))
+            return
+        }
+        guard metadataLookupKey != key else { return }
+        metadataLookupKey = key
+        metadataTask?.cancel()
+        metadataTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+                guard let metadata = await XPCHelperClient.shared.neteaseTrackMetadata(title: state.title, artist: state.artist),
+                      !Task.isCancelled, let self, self.metadataLookupKey == key else { return }
+                self.reconciledMetadata = metadata
+                self.reconciledMetadataKey = key
+                self.reconciledArtwork = nil
+                self.publish(self.playbackSession.reconcile(metadata))
+                guard let url = metadata.artworkURL else { return }
+                let artwork: Data
+                if let cached = self.artworkCache[url] {
+                    artwork = cached
+                } else {
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 5
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    guard let response = response as? HTTPURLResponse,
+                          response.statusCode == 200, data.count <= 5_000_000,
+                          NSImage(data: data) != nil else { return }
+                    artwork = data
+                    if self.artworkCache.count >= 32 { self.artworkCache.removeAll() }
+                    self.artworkCache[url] = data
+                }
+                guard !Task.isCancelled, self.metadataLookupKey == key else { return }
+                self.reconciledArtwork = artwork
+                self.publish(self.playbackSession.reconcile(metadata, artwork: artwork))
+            } catch { }
+        }
+    }
+
+    @MainActor
+    private func publish(_ state: PlaybackState) {
+        if state != playbackState || state.lastUpdated != playbackState.lastUpdated
+            || state.playbackRate != playbackState.playbackRate
+            || state.volume != playbackState.volume {
+            playbackState = state
+        }
+    }
+
+    private func scheduleObserverRestart() async {
+        await pipeHandler?.close()
+        if let process, process.isRunning { process.terminate() }
+        process = nil
+        pipeHandler = nil
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(1))
+                try Task.checkCancellation()
+                await self?.setupNowPlayingObserver()
+            } catch { }
+        }
+    }
+
      private func fetchFavoriteStateIfSupported() async {
          let bundleID = playbackState.bundleIdentifier
         
@@ -323,104 +373,4 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
          }
      }
     
-}
-
-struct NowPlayingUpdate: Codable {
-    let payload: NowPlayingPayload
-    let diff: Bool?
-}
-
-struct NowPlayingPayload: Codable {
-    let title: String?
-    let artist: String?
-    let album: String?
-    let duration: Double?
-    let elapsedTime: Double?
-    let shuffleMode: Int?
-    let repeatMode: Int?
-    let artworkData: String?
-    let timestamp: String?
-    let playbackRate: Double?
-    let playing: Bool?
-    let parentApplicationBundleIdentifier: String?
-    let bundleIdentifier: String?
-    let volume: Double?
-}
-
-actor JSONLinesPipeHandler {
-    private let pipe: Pipe
-    private let fileHandle: FileHandle
-    private var buffer = ""
-    
-    init() {
-        self.pipe = Pipe()
-        self.fileHandle = pipe.fileHandleForReading
-    }
-    
-    func getPipe() -> Pipe {
-        return pipe
-    }
-    
-    func readJSONLines<T: Decodable>(as type: T.Type, onLine: @escaping (T) async -> Void) async {
-        do {
-            try await self.processLines(as: type) { decodedObject in
-                await onLine(decodedObject)
-            }
-        } catch {
-            print("Error processing JSON stream: \(error)")
-        }
-    }
-    
-    private func processLines<T: Decodable>(as type: T.Type, onLine: @escaping (T) async -> Void) async throws {
-        while true {
-            let data = try await readData()
-            guard !data.isEmpty else { break }
-            
-            if let chunk = String(data: data, encoding: .utf8) {
-                buffer.append(chunk)
-                
-                while let range = buffer.range(of: "\n") {
-                    let line = String(buffer[..<range.lowerBound])
-                    buffer = String(buffer[range.upperBound...])
-                    
-                    if !line.isEmpty {
-                        await processJSONLine(line, as: type, onLine: onLine)
-                    }
-                }
-            }
-        }
-    }
-    
-    private func processJSONLine<T: Decodable>(_ line: String, as type: T.Type, onLine: @escaping (T) async -> Void) async {
-        guard let data = line.data(using: .utf8) else {
-            return
-        }
-        do {
-            let decodedObject = try JSONDecoder().decode(T.self, from: data)
-            await onLine(decodedObject)
-        } catch {
-            // Ignore lines that can't be decoded
-        }
-    }
-    
-    private func readData() async throws -> Data {
-        return try await withCheckedThrowingContinuation { continuation in
-            
-            fileHandle.readabilityHandler = { handle in
-                let data = handle.availableData
-                handle.readabilityHandler = nil
-                continuation.resume(returning: data)
-            }
-        }
-    }
-    
-    func close() async {
-        do {
-            fileHandle.readabilityHandler = nil
-            try fileHandle.close()
-            try pipe.fileHandleForWriting.close()
-        } catch {
-            print("Error closing pipe handler: \(error)")
-        }
-    }
 }

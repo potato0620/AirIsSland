@@ -11,6 +11,39 @@ import IOKit
 import CoreGraphics
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
+    private let queueCatalogQueue = DispatchQueue(label: "boringNotch.netease-queue", qos: .userInitiated)
+    private var queueCatalogCache: [URL: (modified: Date, size: Int, tracks: [NetEaseTrackMetadata])] = [:]
+
+    @objc func neteaseTrackMetadata(_ title: String, artist: String, with reply: @escaping (Data?) -> Void) {
+        queueCatalogQueue.async { [self] in
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let roots = [
+                "Library/Application Support/com.netease.163music/Documents/storage/file_storage/webdata/file",
+                "Library/Containers/com.netease.163music/Data/Documents/storage/file_storage/webdata/file",
+            ]
+            for root in roots {
+                var tracks: [NetEaseTrackMetadata] = []
+                for file in ["playingList", "lastTimePlayingList"] {
+                    let url = home.appendingPathComponent(root).appendingPathComponent(file)
+                    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                          let date = values.contentModificationDate, let size = values.fileSize,
+                          size <= 20_000_000 else { continue }
+                    if let cached = queueCatalogCache[url], cached.modified == date, cached.size == size {
+                        tracks += cached.tracks
+                    } else if let data = try? Data(contentsOf: url) {
+                        let parsed = NetEaseQueueCatalog.tracks(in: data)
+                        queueCatalogCache[url] = (date, size, parsed)
+                        tracks += parsed
+                    }
+                }
+                if let match = NetEaseQueueCatalog.match(in: tracks, title: title, artist: artist) {
+                    reply(try? JSONEncoder().encode(match))
+                    return
+                }
+            }
+            reply(nil)
+        }
+    }
     
     @objc func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void) {
         reply(AXIsProcessTrusted())
