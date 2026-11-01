@@ -2,7 +2,7 @@
 <h1 align="center">AirIsland</h1>
 <p align="center">让 Mac 的刘海区域，成为轻巧的桌面控制中心。</p>
 
-[下载最新版本](https://github.com/potato0620/boring.notch/releases/latest) · [查看所有版本](https://github.com/potato0620/boring.notch/releases)
+[下载最新版本](https://github.com/potato0620/AirIsSland/releases/latest) · [查看所有版本](https://github.com/potato0620/AirIsSland/releases)
 
 AirIsland 支持音乐控制、日历、文件暂存、电量提示和音量、亮度浮层，并提供简体中文设置。
 

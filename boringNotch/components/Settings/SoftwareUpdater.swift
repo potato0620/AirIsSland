@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct CheckForUpdatesView: View {
-    private let releasesURL = URL(string: "https://github.com/potato0620/boring.notch/releases/latest")!
+    private let releasesURL = URL(string: "https://github.com/potato0620/AirIsSland/releases/latest")!
 
     var body: some View {
         Link("Download the latest version", destination: releasesURL)
