@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HoverButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var icon: String
     var iconColor: Color = .primary
     var scale: Image.Scale = .medium
@@ -38,7 +39,7 @@ struct HoverButton: View {
         }
         .buttonStyle(PlainButtonStyle())
         .onHover { hovering in
-            withAnimation(.smooth(duration: 0.3)) {
+            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
                 isHovering = hovering
             }
         }

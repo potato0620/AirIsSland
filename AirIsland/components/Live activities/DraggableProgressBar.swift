@@ -6,6 +6,7 @@
 import SwiftUI
 
 struct DraggableProgressBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var value: CGFloat
     var onChange: ((CGFloat) -> Void)? = nil
     
@@ -25,13 +26,13 @@ struct DraggableProgressBar: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { gesture in
-                            withAnimation(.smooth(duration: 0.3)) {
+                            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
                                 isDragging = true
-                                updateValue(gesture: gesture, in: geo)
                             }
+                            updateValue(gesture: gesture, in: geo)
                         }
                         .onEnded { _ in
-                            withAnimation(.smooth(duration: 0.3)) {
+                            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
                                 isDragging = false
                             }
                         }

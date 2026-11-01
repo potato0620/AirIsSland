@@ -6,6 +6,8 @@
 bash Tests/run-activity-tests.sh
 bash Tests/run-media-playback-tests.sh
 python3 Tests/check-architecture.py
+bash Tests/run-island-transition-tests.sh
+bash Tests/run-island-artwork-tests.sh
 python3 -m unittest discover -s .github/scripts/tests
 ```
 
@@ -20,6 +22,12 @@ python3 -m unittest discover -s .github/scripts/tests
 媒体测试直接编译生产流读取器、状态模型与封面转换模型，覆盖分片 UTF-8、巨大封面、完整/增量/空快照、播放时间戳、EOF、取消、无效消息、网易云暂停/清空/队列元数据的序列、旧歌曲异步结果及高清封面原位更新。
 
 这些检查不启动音乐应用，不能替代真实播放验收。
+
+## 动画轮廓回归
+
+`bash Tests/run-island-transition-tests.sh [截图输出目录]` 在独立的离屏原生窗口中运行生产背景、轮廓与统一动画策略，不访问音乐来源或用户偏好。检查三种收起高度、展开/收起、快速反向、过渡中的背景内容更新及减少动态效果；直接读取中间帧像素，验证圆角仍然存在、封面没有越界、顶部保持纯黑和尺寸连续变化。它覆盖裁剪与动画事务回归，完整 `ContentView` 和真实鼠标/触控板交互仍需另行验收。
+
+`bash Tests/run-island-artwork-tests.sh` 构建生产 `ContentView` 的独立测试副本，以当前显示器参数逐帧检查精简/展开、横向歌曲速览/展开、快速反向和高清封面更新。测试副本关闭真实来源启动，使用独立偏好域；生产视图和调度代码保持原样，只插入封面出现次数计数及减少动态效果的测试输入。用浅色封面像素验证持续单实例、圆角、无文字黑框遮挡及封面和岛的缩放进度一致，分别覆盖有/无光晕。启用真实网易云应用角标，检查其在过渡中始终附着于封面右下角，收起和系统反馈状态不残留角标；因此运行该检查需安装网易云音乐。构建日志和截图保留在 `build/checks/artwork-render-tests/`；可通过 `AIRISLAND_DERIVED_DATA` 和 `AIRISLAND_SOURCE_PACKAGES` 复用已有构建/包缓存。这仍是离屏验证，不能代替真实鼠标、触控板和音乐应用验收。
 
 ## 界面和真实应用验收
 

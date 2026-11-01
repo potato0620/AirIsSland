@@ -11,6 +11,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct FileShareView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var vm: IslandViewModel
     @StateObject private var quickShare = QuickShareService.shared
     @Default(.quickShareProvider) var quickShareProvider: String
@@ -81,7 +82,7 @@ struct FileShareView: View {
                         .scaleEffect(
                             vm.dropZoneTargeting ? 1.06 : 1.0
                         )
-                        .animation(.spring(response: 0.36, dampingFraction: 0.7), value: vm.dropZoneTargeting)
+                        .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: vm.dropZoneTargeting)
                 }
 
                 Text(selectedProvider.id)

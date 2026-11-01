@@ -65,8 +65,7 @@ struct InlineHUD: View {
             }
             .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
             
-            Rectangle()
-                .fill(.black)
+            Color.clear
                 .frame(width: vm.closedNotchSize.width - 20)
             
             HStack {

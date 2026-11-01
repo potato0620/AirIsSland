@@ -13,49 +13,107 @@ import SwiftUI
 // MARK: - Music Player Components
 
 struct MusicPlayerView: View {
-    @EnvironmentObject var vm: IslandViewModel
-    let albumArtNamespace: Namespace.ID
+    @EnvironmentObject private var vm: IslandViewModel
 
     var body: some View {
+        let side = MusicPlayerImageSizes.expandedSide(headerHeight: max(24, vm.effectiveClosedNotchHeight))
         HStack {
-            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
+            Color.clear
+                .frame(width: side, height: side)
+                .padding(MusicPlayerImageSizes.padding)
             MusicControlsView().drawingGroup().compositingGroup()
         }
+    }
+}
+
+/// One interpolation drives the persistent cover's position, size and mask together.
+/// Its endpoints use the same dimensions as the transparent slots in both layouts.
+struct AlbumArtPresentation: View {
+    @ObservedObject private var musicManager = MusicManager.shared
+    @State private var appIcon: Image?
+    let vm: IslandViewModel
+    let expansion: CGFloat
+    let closedHeight: CGFloat
+    let expandedLeadingInset: CGFloat
+    let scalesCorners: Bool
+    let isPlaying: Bool
+
+    var body: some View {
+        let headerHeight = max(24, closedHeight)
+        let closedSide = max(0, closedHeight - 12)
+        let openedSide = MusicPlayerImageSizes.expandedSide(headerHeight: headerHeight)
+        let side = interpolate(closedSide, openedSide)
+        let leading = interpolate(cornerRadiusInsets.closed.bottom, expandedLeadingInset)
+        let top = interpolate(6, headerHeight + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding)
+        let closedRadius = MusicPlayerImageSizes.cornerRadiusInset.closed
+        let openedRadius = scalesCorners ? MusicPlayerImageSizes.cornerRadiusInset.opened : closedRadius
+        let playbackScale = isPlaying ? 1 : interpolate(1, 0.85)
+        let badgeProgress = min(1, max(0, expansion))
+        let badgeSide = 30 * badgeProgress * playbackScale
+        let badgeInset = 5 * badgeProgress * playbackScale
+        let badgeCenter = CGPoint(x: leading + side / 2 + side * playbackScale / 2 - badgeInset,
+                                  y: top + side / 2 + side * playbackScale / 2 - badgeInset)
+        GeometryReader { _ in
+            AlbumArtView(vm: vm, cornerRadius: interpolate(closedRadius, openedRadius),
+                         playbackScale: playbackScale)
+                .frame(width: side, height: side)
+                .position(x: leading + side / 2, y: top + side / 2)
+
+            if !musicManager.usingAppIconForArtwork, let appIcon {
+                appBadge(appIcon, side: badgeSide, center: badgeCenter, opacity: Double(badgeProgress))
+            }
+        }
+        .onChange(of: musicManager.bundleIdentifier, initial: true) { _, bundleIdentifier in
+            appIcon = AppIcon(for: bundleIdentifier ?? "com.apple.Music")
+        }
+    }
+
+    private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
+        compact + (expanded - compact) * expansion
+    }
+
+    private func appBadge(_ image: Image, side: CGFloat, center: CGPoint, opacity: Double) -> some View {
+        image
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            // The shared expansion already supplies every frame. Do not start
+            // another implicit position/size animation for the badge.
+            .animation(nil) { badge in
+                badge.frame(width: side, height: side).position(center).opacity(opacity)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
 struct AlbumArtView: View {
     @ObservedObject var musicManager = MusicManager.shared
     @ObservedObject var vm: IslandViewModel
-    let albumArtNamespace: Namespace.ID
+
+    let cornerRadius: CGFloat
+    let playbackScale: CGFloat
 
     var body: some View {
         albumArtButton
     }
 
     private var albumArtButton: some View {
-        ZStack {
-            Button {
-                musicManager.openMusicApp()
-            } label: {
-                ZStack(alignment:.bottomTrailing) {
-                    albumArtImage
-                    appIconOverlay
-                }
-            }
-            .buttonStyle(PlainButtonStyle())
-            .scaleEffect(musicManager.isPlaying ? 1 : 0.85)
-            
-            albumArtDarkOverlay
+        Button {
+            musicManager.openMusicApp()
+        } label: {
+            albumArtImage
+                .overlay { albumArtDarkOverlay }
         }
+        .buttonStyle(PlainButtonStyle())
+        .scaleEffect(playbackScale)
     }
 
     private var albumArtDarkOverlay: some View {
-        Rectangle()
+        RoundedRectangle(cornerRadius: cornerRadius)
             .aspectRatio(1, contentMode: .fit)
             .foregroundColor(Color.black)
-            .opacity(musicManager.isPlaying ? 0 : 0.8)
-            .blur(radius: 50)
+            .opacity(vm.notchState == .open && !musicManager.isPlaying ? 0.8 : 0)
+            .allowsHitTesting(false)
     }
                 
 
@@ -64,25 +122,10 @@ struct AlbumArtView: View {
             image: musicManager.albumArt,
             trackIdentifier: musicManager.albumArtTrackIdentifier,
             direction: musicManager.albumArtFlipDirection,
-            cornerRadius: Defaults[.cornerRadiusScaling]
-                ? MusicPlayerImageSizes.cornerRadiusInset.opened
-                : MusicPlayerImageSizes.cornerRadiusInset.closed
+            cornerRadius: cornerRadius
         )
-            .matchedGeometryEffect(id: "albumArt", in: albumArtNamespace)
     }
 
-    @ViewBuilder
-    private var appIconOverlay: some View {
-        if vm.notchState == .open && !musicManager.usingAppIconForArtwork {
-            AppIcon(for: musicManager.bundleIdentifier ?? "com.apple.Music")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 30, height: 30)
-                .offset(x: 10, y: 10)
-                .transition(.scale.combined(with: .opacity))
-                .zIndex(2)
-        }
-    }
 }
 
 /// Reuse the same two faces for each half-turn. Rapid updates keep only the
@@ -169,7 +212,7 @@ struct SpringAlbumArtwork: View {
                     frontImage = image
                 }
             }
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.68), completionCriteria: .removed) {
+            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion), completionCriteria: .removed) {
                 angle += direction.rotation
             } completion: {
                 guard animationID == id else { return }
@@ -300,7 +343,6 @@ struct NotchHomeView: View {
     @EnvironmentObject var vm: IslandViewModel
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
-    let albumArtNamespace: Namespace.ID
 
     var body: some View {
         Group {
@@ -324,7 +366,7 @@ struct NotchHomeView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MusicPlayerView(albumArtNamespace: albumArtNamespace)
+                MusicPlayerView()
             }
         }
         .blur(radius: vm.notchState == .closed ? 30 : 0)
@@ -393,6 +435,7 @@ struct MusicSliderView: View {
 }
 
 struct CustomSlider: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var value: Double
     var range: ClosedRange<Double>
     var color: Color = .white
@@ -425,7 +468,7 @@ struct CustomSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        withAnimation {
+                        withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
                             dragging = true
                         }
                         let newValue = range.lowerBound + Double(gesture.location.x / width) * rangeSpan
@@ -438,7 +481,7 @@ struct CustomSlider: View {
                         lastDragged = Date()
                     }
             )
-            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: dragging)
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: dragging)
         }
     }
 }

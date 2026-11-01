@@ -31,32 +31,30 @@ struct ContentView: View {
 
     @State private var haptics: Bool = false
 
-    @Namespace var albumArtNamespace
-
     @ObservedObject private var activities = ActivityCoordinator.shared
 
     private var presentation: IslandPresentation { IslandPresentation(activity: activities.current) }
 
-    // Shared interactive spring for movement/resizing to avoid conflicting animations
-    private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
-
-    private var topCornerRadius: CGFloat {
-       ((vm.notchState == .open) && Defaults[.cornerRadiusScaling])
-                ? cornerRadiusInsets.opened.top
-                : cornerRadiusInsets.closed.top
+    private var islandAnimation: Animation? {
+        IslandAnimations.animation(reduceMotion: reduceMotion)
     }
 
-    private var currentNotchShape: NotchShape {
-        NotchShape(
-            topCornerRadius: topCornerRadius,
-            bottomCornerRadius: ((vm.notchState == .open) && Defaults[.cornerRadiusScaling])
-                ? cornerRadiusInsets.opened.bottom
-                : cornerRadiusInsets.closed.bottom
-        )
+    private var expandedHorizontalInset: CGFloat {
+        Defaults[.cornerRadiusScaling] ? cornerRadiusInsets.opened.top : cornerRadiusInsets.opened.bottom
     }
 
-    private var showsMusicPeek: Bool {
-        presentation.showsMusicPeek
+    private var showsArtwork: Bool {
+        if vm.notchState == .open {
+            return coordinator.currentView == .home && !coordinator.firstLaunch && !musicManager.songTitle.isEmpty
+        }
+        return presentation.showsMusic && !vm.hideOnClosed
+    }
+
+    private var closedSurfaceHeight: CGFloat {
+        if presentation.feedback != nil {
+            return max(24, vm.closedNotchSize.height) + (isHovering ? 8 : 0)
+        }
+        return vm.effectiveClosedNotchHeight
     }
 
     private var computedChinWidth: CGFloat {
@@ -92,27 +90,21 @@ struct ContentView: View {
                     .padding(
                         .horizontal,
                         vm.notchState == .open
-                        ? Defaults[.cornerRadiusScaling]
-                        ? (cornerRadiusInsets.opened.top) : (cornerRadiusInsets.opened.bottom)
+                        ? expandedHorizontalInset
                         : cornerRadiusInsets.closed.bottom
                     )
-                    .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
+                    .padding([.horizontal, .bottom], vm.notchState == .open ? MusicPlayerImageSizes.panelPadding : 0)
                     .frame(width: vm.notchState == .open ? vm.notchSize.width : nil, alignment: .top)
-                    .background {
-                        IslandBackdrop(
-                            artwork: musicManager.albumArt,
-                            topClearance: max(vm.physicalNotchHeight, vm.effectiveClosedNotchHeight),
-                            showsArtwork: vm.notchState == .open && coordinator.currentView == .home
-                                && musicManager.isPlaying && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
-                        )
-                    }
-                    .clipShape(currentNotchShape)
-                    .overlay(alignment: .top) {
-                        Rectangle()
-                            .fill(.black)
-                            .frame(height: 1)
-                            .padding(.horizontal, topCornerRadius)
-                    }
+                    .modifier(IslandExpansionSurface(
+                        vm: vm, expansion: vm.notchState == .open ? 1 : 0,
+                        closedSurfaceHeight: closedSurfaceHeight,
+                        expandedHeight: openNotchSize.height,
+                        expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
+                        scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
+                        isPlaying: musicManager.isPlaying, showsArtwork: showsArtwork,
+                        showsAmbience: vm.notchState == .open && coordinator.currentView == .home
+                            && musicManager.isPlaying && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
+                    ))
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
                             ? .black.opacity(0.7) : .clear, radius: Defaults[.cornerRadiusScaling] ? 6 : 4
@@ -123,15 +115,6 @@ struct ContentView: View {
                     )
                 
                 mainLayout
-                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
-                    .conditionalModifier(true) { view in
-                        let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
-                        let closeAnimation = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
-                        
-                        return view
-                            .animation(vm.notchState == .open ? openAnimation : closeAnimation, value: vm.notchState)
-                            .animation(.smooth, value: gestureProgress)
-                    }
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
@@ -167,7 +150,7 @@ struct ContentView: View {
                     }
                     .onChange(of: vm.notchState) { _, newState in
                         if newState == .closed && isHovering {
-                            withAnimation {
+                            withAnimation(islandAnimation) {
                                 isHovering = false
                             }
                         }
@@ -210,9 +193,11 @@ struct ContentView: View {
             y: gestureScale,
             anchor: .top
         )
-        .animation(.smooth, value: gestureProgress)
-        // Scheduling publishes facts without animation; the view owns this transition.
-        .animation(reduceMotion ? nil : animationSpring, value: showsMusicPeek)
+        // Animate presentation changes, never artwork resolution or playback progress.
+        .animation(islandAnimation, value: vm.notchState)
+        .animation(islandAnimation, value: coordinator.currentView)
+        .animation(islandAnimation, value: gestureProgress)
+        .animation(islandAnimation, value: activities.current?.kind)
         .background(dragDetector)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
@@ -246,7 +231,7 @@ struct ContentView: View {
 
     @ViewBuilder
     func NotchLayout() -> some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
             VStack(alignment: .leading) {
                 if coordinator.helloAnimationRunning {
                     Spacer()
@@ -269,8 +254,7 @@ struct ContentView: View {
                                     .foregroundStyle(.white)
                             }
 
-                            Rectangle()
-                                .fill(.black)
+                            Color.clear
                                 .frame(width: vm.closedNotchSize.width + 10)
 
                             HStack {
@@ -311,16 +295,12 @@ struct ContentView: View {
                 VStack {
                     switch coordinator.currentView {
                     case .home:
-                        NotchHomeView(albumArtNamespace: albumArtNamespace)
+                        NotchHomeView()
                     case .shelf:
                         ShelfView()
                     }
                 }
-                .transition(
-                    .scale(scale: 0.8, anchor: .top)
-                    .combined(with: .opacity)
-                    .animation(.smooth(duration: 0.35))
-                )
+                .transition(.opacity)
                 .zIndex(1)
                 .allowsHitTesting(vm.notchState == .open)
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
@@ -332,20 +312,13 @@ struct ContentView: View {
     @ViewBuilder
     func MusicLiveActivity() -> some View {
         HStack {
-            SpringAlbumArtwork(
-                image: musicManager.albumArt,
-                trackIdentifier: musicManager.albumArtTrackIdentifier,
-                direction: musicManager.albumArtFlipDirection,
-                cornerRadius: MusicPlayerImageSizes.cornerRadiusInset.closed
-            )
-                .matchedGeometryEffect(id: "albumArt", in: albumArtNamespace)
+            Color.clear
                 .frame(
                     width: max(0, vm.effectiveClosedNotchHeight - 12),
                     height: max(0, vm.effectiveClosedNotchHeight - 12)
                 )
 
-            Rectangle()
-                .fill(.black)
+            Color.clear
                 .overlay(
                     HStack(alignment: .top) {
                         if presentation.showsMusicPeek
@@ -385,7 +358,6 @@ struct ContentView: View {
                                 : Color.gray.gradient
                         )
                         .frame(width: 50, alignment: .center)
-                        .matchedGeometryEffect(id: "spectrum", in: albumArtNamespace)
                         .mask {
                             AudioSpectrumView(isPlaying: $musicManager.isPlaying)
                                 .frame(width: 16, height: 12)
@@ -428,7 +400,7 @@ struct ContentView: View {
     }
 
     private func doOpen() {
-        withAnimation(animationSpring) {
+        withAnimation(islandAnimation) {
             vm.open()
         }
     }
@@ -440,7 +412,7 @@ struct ContentView: View {
         hoverTask?.cancel()
         
         if hovering {
-            withAnimation(animationSpring) {
+            withAnimation(islandAnimation) {
                 isHovering = true
             }
             
@@ -470,7 +442,7 @@ struct ContentView: View {
                 guard !Task.isCancelled else { return }
                 
                 await MainActor.run {
-                    withAnimation(animationSpring) {
+                    withAnimation(islandAnimation) {
                         self.isHovering = false
                     }
                     
@@ -488,11 +460,11 @@ struct ContentView: View {
         guard vm.notchState == .closed else { return }
 
         if phase == .ended {
-            withAnimation(animationSpring) { gestureProgress = .zero }
+            withAnimation(islandAnimation) { gestureProgress = .zero }
             return
         }
 
-        withAnimation(animationSpring) {
+        withAnimation(islandAnimation) {
             gestureProgress = (translation / Defaults[.gestureSensitivity]) * 20
         }
 
@@ -500,7 +472,7 @@ struct ContentView: View {
             if Defaults[.enableHaptics] {
                 haptics.toggle()
             }
-            withAnimation(animationSpring) {
+            withAnimation(islandAnimation) {
                 gestureProgress = .zero
             }
             doOpen()
@@ -510,18 +482,18 @@ struct ContentView: View {
     private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
         guard vm.notchState == .open else { return }
 
-        withAnimation(animationSpring) {
+        withAnimation(islandAnimation) {
             gestureProgress = (translation / Defaults[.gestureSensitivity]) * -20
         }
 
         if phase == .ended {
-            withAnimation(animationSpring) {
+            withAnimation(islandAnimation) {
                 gestureProgress = .zero
             }
         }
 
         if translation > Defaults[.gestureSensitivity] {
-            withAnimation(animationSpring) {
+            withAnimation(islandAnimation) {
                 isHovering = false
             }
             if !SharingStateManager.shared.preventNotchClose { 
@@ -533,6 +505,54 @@ struct ContentView: View {
                 haptics.toggle()
             }
         }
+    }
+}
+
+/// The island outline and cover share the same rendered expansion value, rather
+/// than independently starting layout and matched-geometry animations.
+private struct IslandExpansionSurface: AnimatableModifier {
+    let vm: IslandViewModel
+    var expansion: CGFloat
+    let closedSurfaceHeight: CGFloat
+    let expandedHeight: CGFloat
+    let expandedLeadingInset: CGFloat
+    let scalesCorners: Bool
+    let artwork: NSImage
+    let isPlaying: Bool
+    let showsArtwork: Bool
+    let showsAmbience: Bool
+
+    var animatableData: CGFloat {
+        get { expansion }
+        set { expansion = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let closedHeight = vm.effectiveClosedNotchHeight
+        let top = interpolate(cornerRadiusInsets.closed.top, scalesCorners ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top)
+        let bottom = interpolate(cornerRadiusInsets.closed.bottom, scalesCorners ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom)
+        content
+            .frame(height: interpolate(closedSurfaceHeight, expandedHeight), alignment: .top)
+            .overlay {
+                AlbumArtPresentation(vm: vm, expansion: expansion, closedHeight: closedHeight,
+                                     expandedLeadingInset: expandedLeadingInset,
+                                     scalesCorners: scalesCorners, isPlaying: isPlaying)
+                    .opacity(showsArtwork ? 1 : 0)
+                    .allowsHitTesting(vm.notchState == .open && showsArtwork)
+                    .accessibilityHidden(!showsArtwork)
+            }
+            .background {
+                IslandBackdrop(artwork: artwork, topClearance: max(vm.physicalNotchHeight, closedHeight),
+                               showsArtwork: showsAmbience)
+            }
+            .clipShape(NotchShape(topCornerRadius: top, bottomCornerRadius: bottom))
+            .overlay(alignment: .top) {
+                Rectangle().fill(.black).frame(height: 1).padding(.horizontal, top)
+            }
+    }
+
+    private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
+        compact + (expanded - compact) * expansion
     }
 }
 

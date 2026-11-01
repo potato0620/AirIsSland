@@ -5,21 +5,11 @@
 //  Created by Harsh Vardhan  Goswami  on  04/08/24.
 //
 
-import Foundation
 import SwiftUI
 
-
-public class IslandAnimations {
-    @Published var notchStyle: Style = .notch
-
-    var animation: Animation {
-        if notchStyle == .notch {
-            Animation.spring(.bouncy(duration: 0.4))
-        } else {
-            Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.7)
-        }
+/// Presentation-only motion shared by the island and its interactive controls.
+enum IslandAnimations {
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .interactiveSpring(response: 0.42, dampingFraction: 1, blendDuration: 0)
     }
-    
-    // TODO: Move all animations to this file
-    
 }

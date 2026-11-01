@@ -77,10 +77,11 @@ struct BatteryView: View {
 }
 
 struct ScaleButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -168,6 +169,7 @@ struct BatteryMenuView: View {
 
 /// A view that displays the battery status and allows interaction to show detailed information.
 struct IslandBatteryView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     @State var batteryWidth: CGFloat = 26
     var isCharging: Bool = false
@@ -188,7 +190,7 @@ struct IslandBatteryView: View {
 
     var body: some View {
         Button(action: {
-            withAnimation {
+            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
                 showPopupMenu.toggle()
             }
         }) {
@@ -248,7 +250,7 @@ struct IslandBatteryView: View {
         hideTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            await MainActor.run { withAnimation { showPopupMenu = false } }
+            await MainActor.run { withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) { showPopupMenu = false } }
         }
     }
 }

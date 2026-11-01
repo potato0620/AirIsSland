@@ -13,8 +13,9 @@ class IslandViewModel: NSObject, ObservableObject {
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject var detector = FullscreenMediaDetector.shared
 
-    let animationLibrary: IslandAnimations = .init()
-    let animation: Animation?
+    private var animation: Animation? {
+        IslandAnimations.animation(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
 
     @Published private(set) var notchState: NotchState = .closed
 
@@ -44,8 +45,6 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     init(screenUUID: String? = nil) {
-        animation = animationLibrary.animation
-
         super.init()
         
         self.screenUUID = screenUUID
@@ -63,7 +62,7 @@ class IslandViewModel: NSObject, ObservableObject {
             .removeDuplicates()
             .sink { [weak self] view in
                 guard let self, self.notchState == .open else { return }
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+                withAnimation(self.animation) {
                     self.notchSize = view == .shelf ? shelfNotchSize : openNotchSize
                 }
             }
@@ -97,7 +96,7 @@ class IslandViewModel: NSObject, ObservableObject {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] shouldHide in
-                withAnimation(.smooth) {
+                withAnimation(self?.animation) {
                     self?.hideOnClosed = shouldHide
                 }
             }
@@ -165,7 +164,7 @@ class IslandViewModel: NSObject, ObservableObject {
 
     func closeHello() {
         Task { @MainActor in
-            withAnimation(animationLibrary.animation) {
+            withAnimation(animation) {
                 coordinator.helloAnimationRunning = false
                 close()
             }

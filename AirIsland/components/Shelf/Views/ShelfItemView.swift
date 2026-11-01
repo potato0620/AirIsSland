@@ -12,6 +12,7 @@ import Defaults
 import QuickLook
 
 struct ShelfItemView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: ShelfItem
     @ObservedObject var selection = ShelfSelectionModel.shared
     @StateObject private var viewModel: ShelfItemViewModel
@@ -36,7 +37,7 @@ struct ShelfItemView: View {
             .padding(.horizontal, 5)
             .background(backgroundView)
             .contentShape(Rectangle())
-            .animation(.easeInOut(duration: 0.1), value: isSelected)
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: isSelected)
 
             DraggableClickHandler(
                 item: item,

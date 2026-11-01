@@ -9,6 +9,7 @@ import Defaults
 import SwiftUI
 
 struct IslandHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var vm: IslandViewModel
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
@@ -23,7 +24,7 @@ struct IslandHeader: View {
                     TabSelectionView()
                 } else if shelfEnabled && vm.notchState == .open {
                     Button {
-                        withAnimation(.smooth) { coordinator.currentView = .shelf }
+                        withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) { coordinator.currentView = .shelf }
                     } label: {
                         Image(systemName: "tray").frame(width: 30, height: 26)
                     }

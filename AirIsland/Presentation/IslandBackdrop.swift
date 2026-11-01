@@ -28,9 +28,11 @@ struct IslandBackdrop: View {
                         Color.black
                     }
                 }
-                .opacity(showsArtwork ? 0.3 : 0)
+                // Fade only the light; geometry and clipping inherit the island's spring.
+                .animation(IslandAnimations.animation(reduceMotion: reduceMotion)) { light in
+                    light.opacity(showsArtwork ? 0.3 : 0)
+                }
         }
         .clipped()
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showsArtwork)
     }
 }

@@ -18,6 +18,13 @@ let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: 
 enum MusicPlayerImageSizes {
     static let cornerRadiusInset: (opened: CGFloat, closed: CGFloat) = (opened: 13.0, closed: 4.0)
     static let size = (opened: CGSize(width: 90, height: 90), closed: CGSize(width: 20, height: 20))
+    static let padding: CGFloat = 5
+    static let sectionSpacing: CGFloat = 8
+    static let panelPadding: CGFloat = 12
+
+    static func expandedSide(headerHeight: CGFloat) -> CGFloat {
+        max(0, openNotchSize.height - headerHeight - sectionSpacing - panelPadding - 2 * padding)
+    }
 }
 
 @MainActor func getClosedNotchSize(screenUUID: String? = nil) -> CGSize {

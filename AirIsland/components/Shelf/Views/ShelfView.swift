@@ -9,6 +9,7 @@ import SwiftUI
 import AppKit
 
 struct ShelfView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var vm: IslandViewModel
     @StateObject var tvm = ShelfStateViewModel.shared
     @StateObject var selection = ShelfSelectionModel.shared
@@ -70,9 +71,8 @@ struct ShelfView: View {
                 content
                     .padding()
             }
-            .transaction { transaction in
-                transaction.animation = vm.animation
-            }
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: vm.dragDetectorTargeting)
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: tvm.items.map(\.id))
             .contentShape(Rectangle())
             .onTapGesture { selection.clear() }
     }
