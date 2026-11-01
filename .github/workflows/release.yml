@@ -1,4 +1,4 @@
-name: "Deploy 轻岛"
+name: "Deploy AirIsland"
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 env:
   PROJECT_NAME: boringNotch
-  APP_NAME: 轻岛
+  APP_NAME: AirIsland
   BETA_CHANNEL_NAME: beta
 
 jobs:
@@ -605,10 +605,10 @@ jobs:
             end
             auto_updates true
             depends_on macos: :sonoma
-            app "轻岛.app"
+            app "AirIsland.app"
 
             postflight do
-              app_path = appdir/"轻岛.app"
+              app_path = appdir/"AirIsland.app"
               next unless app_path.exist?
               system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", app_path]
             end

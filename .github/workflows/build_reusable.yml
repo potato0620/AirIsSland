@@ -38,7 +38,7 @@ jobs:
       contents: read
     env:
       PROJECT_NAME: boringNotch
-      APP_NAME: 轻岛
+      APP_NAME: AirIsland
       EXPORT_METHOD: development
       VERSION_INPUT: ${{ inputs.version }}
       BUILD_NUMBER_INPUT: ${{ inputs.build_number }}

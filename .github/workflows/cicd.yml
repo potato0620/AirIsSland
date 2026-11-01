@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    name: Build 轻岛
+    name: Build AirIsland
     strategy:
       matrix:
         platform:

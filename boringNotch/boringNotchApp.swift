@@ -17,7 +17,7 @@ struct DynamicNotchApp: App {
     @Default(.menubarIcon) var showMenuBarIcon
 
     var body: some Scene {
-        MenuBarExtra("轻岛", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
+        MenuBarExtra("AirIsland", systemImage: "sparkle", isInserted: $showMenuBarIcon) {
             Button("Settings") {
                 DispatchQueue.main.async {
                     SettingsWindowController.shared.showWindow()
@@ -26,7 +26,7 @@ struct DynamicNotchApp: App {
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             CheckForUpdatesView()
             Divider()
-            Button("重新启动轻岛") {
+            Button("Restart AirIsland") {
                 ApplicationRelauncher.restart()
             }
             Button("Quit", role: .destructive) {
