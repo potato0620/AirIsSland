@@ -16,6 +16,7 @@ import SwiftUIIntrospect
 @MainActor
 struct ContentView: View {
     @EnvironmentObject var vm: IslandViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -203,6 +204,8 @@ struct ContentView: View {
             anchor: .top
         )
         .animation(.smooth, value: gestureProgress)
+        // Scheduling publishes facts without animation; the view owns this transition.
+        .animation(reduceMotion ? nil : animationSpring, value: showsMusicPeek)
         .background(dragDetector)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
