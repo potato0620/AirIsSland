@@ -36,14 +36,8 @@ struct IslandHeader: View {
             .blur(radius: vm.notchState == .closed ? 20 : 0)
             .zIndex(2)
 
-            if vm.notchState == .open {
-                Rectangle()
-                    .fill(NSScreen.screen(withUUID: coordinator.selectedScreenUUID)?.safeAreaInsets.top ?? 0 > 0 ? .black : .clear)
-                    .frame(width: vm.closedNotchSize.width)
-                    .mask {
-                        NotchShape()
-                    }
-            }
+            // Reserve space for the camera without painting a separate notch-shaped patch.
+            Color.clear.frame(width: vm.closedNotchSize.width)
 
             HStack(spacing: 4) {
                 if vm.notchState == .open {

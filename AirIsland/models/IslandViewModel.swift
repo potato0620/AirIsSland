@@ -104,6 +104,12 @@ class IslandViewModel: NSObject, ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Use this window's display, not the globally preferred display on another monitor.
+    var physicalNotchHeight: CGFloat {
+        let screen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        return max(0, screen?.safeAreaInsets.top ?? 0)
+    }
+
     // Computed property for effective notch height
     var effectiveClosedNotchHeight: CGFloat {
         let currentScreen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) }

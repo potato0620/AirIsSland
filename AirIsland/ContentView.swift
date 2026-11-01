@@ -98,7 +98,14 @@ struct ContentView: View {
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
                     .frame(width: vm.notchState == .open ? vm.notchSize.width : nil, alignment: .top)
-                    .background(.black)
+                    .background {
+                        IslandBackdrop(
+                            artwork: musicManager.albumArt,
+                            topClearance: max(vm.physicalNotchHeight, vm.effectiveClosedNotchHeight),
+                            showsArtwork: vm.notchState == .open && coordinator.currentView == .home
+                                && musicManager.isPlaying && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
+                        )
+                    }
                     .clipShape(currentNotchShape)
                     .overlay(alignment: .top) {
                         Rectangle()
