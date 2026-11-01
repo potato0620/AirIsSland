@@ -1,4 +1,4 @@
-name: "Deploy Boring Notch"
+name: "Deploy 轻岛"
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 env:
   PROJECT_NAME: boringNotch
-  APP_NAME: Boring Notch
+  APP_NAME: 轻岛
   BETA_CHANNEL_NAME: beta
 
 jobs:
@@ -570,7 +570,7 @@ jobs:
 
   upgrade-brew:
     name: Update Homebrew cask
-    if: ${{ always() && needs.preparation.result == 'success' && ((needs.preparation.outputs.is_beta == 'true' && needs.publish_beta.result == 'success') || (needs.preparation.outputs.is_beta == 'false' && needs.publish_stable.result == 'success')) }}
+    if: ${{ github.repository_owner == 'TheBoredTeam' && always() && needs.preparation.result == 'success' && ((needs.preparation.outputs.is_beta == 'true' && needs.publish_beta.result == 'success') || (needs.preparation.outputs.is_beta == 'false' && needs.publish_stable.result == 'success')) }}
     needs: [preparation, publish, publish_beta, publish_stable]
     runs-on: ubuntu-latest
     env:
@@ -605,10 +605,10 @@ jobs:
             end
             auto_updates true
             depends_on macos: :sonoma
-            app "Boring Notch.app"
+            app "轻岛.app"
 
             postflight do
-              app_path = appdir/"Boring Notch.app"
+              app_path = appdir/"轻岛.app"
               next unless app_path.exist?
               system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", app_path]
             end

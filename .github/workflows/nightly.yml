@@ -16,7 +16,7 @@ permissions:
 
 env:
   PROJECT_NAME: boringNotch
-  APP_NAME: Boring Notch
+  APP_NAME: 轻岛
   NIGHTLY_BRANCH: dev
   TAG: nightly
   ASSET_NAME: boringNotch-nightly.dmg
