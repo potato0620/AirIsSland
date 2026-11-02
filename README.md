@@ -19,9 +19,8 @@ AirIsland 借鉴 [Apple Live Activities 与灵动岛设计指南](https://develo
 | 音乐 | 统一使用系统“当前播放”读取网易云等应用的播放状态；收起时展示状态，主动展开后提供封面、进度和必要控制 |
 | 系统反馈 | 调节音量、显示器亮度、键盘背光时，在岛内短暂反馈并自动收回 |
 | 电源变化 | 插拔电源或充电状态变化时短暂提示 |
-| 文件暂存 | 由拖放或主动操作进入，保留取放、预览、复制、打开与分享 |
 
-移除了首页常驻日历、镜子、闲置人脸、歌词查询、自定义 Lottie 动画管理、播放按钮编排器及暂存区图片编辑。图标固定使用 AirIsland 品牌；短暂活动统一在岛内呈现。
+已移除文件暂存、拖放接收、文件预览与分享，以及首页常驻日历、镜子、闲置人脸、歌词查询、自定义 Lottie 动画管理和播放按钮编排器。图标固定使用 AirIsland 品牌；短暂活动统一在岛内呈现。此前暂存的用户文件、书签和持久化记录保留在原位置，应用不再读取或清理这些数据。
 
 目前没有接入 AI 服务。未来 AI 能力也只能以真实任务的进度、完成摘要或待确认操作接入；长对话、参数配置和完整结果应进入独立窗口，不提前放置空入口。
 
@@ -37,13 +36,13 @@ AirIsland 借鉴 [Apple Live Activities 与灵动岛设计指南](https://develo
 
 **今后的人工开发与 AI 开发都必须遵循这三层职责。** 功能来源不得直接操作岛的尺寸和动画；视图不得自行决定活动优先级或另开收起计时器。三层架构是功能接入约束，不能用“快速实现”绕过。
 
-当前实现入口：`Activities/IslandActivity.swift`、`Scheduling/ActivityScheduler.swift`、`Scheduling/ActivityCoordinator.swift`、`Presentation/IslandPresentation.swift`，均位于 `AirIsland/` 下。现有媒体和系统管理器提供活动事实；原有窗口、拖放与具体 SwiftUI 控件继续复用。详见[职责、数据流与扩展步骤](docs/ARCHITECTURE.md)。
+当前实现入口：`Activities/IslandActivity.swift`、`Scheduling/ActivityScheduler.swift`、`Scheduling/ActivityCoordinator.swift`、`Presentation/IslandPresentation.swift`，均位于 `AirIsland/` 下。现有媒体和系统管理器提供活动事实；原有窗口与具体 SwiftUI 控件继续复用。详见[职责、数据流与扩展步骤](docs/ARCHITECTURE.md)。
 
 ## 设置
 
 设置按用户要做的事组织，不把内部架构术语暴露给用户：
 
-- **活动**：音乐、系统反馈、电源变化、文件暂存的来源、启用条件和权限。
+- **活动**：音乐、系统反馈、电源变化的启用条件和权限。
 - **显示与交互**：显示器、刘海适配、悬停、手势、快捷键和统一外观。
 - **通用**：登录启动、菜单栏入口、隐私与系统兼容。
 - **关于**：版本、下载更新、项目来源。

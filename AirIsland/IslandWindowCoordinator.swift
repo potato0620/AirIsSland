@@ -14,7 +14,6 @@ import SwiftUI
 class IslandWindowCoordinator: ObservableObject {
     static let shared = IslandWindowCoordinator()
 
-    @Published var currentView: NotchViews = .home
     @Published var helloAnimationRunning: Bool = false
     private var hudEnableTask: Task<Void, Never>?
 
@@ -36,14 +35,9 @@ class IslandWindowCoordinator: ObservableObject {
     @Published var selectedScreenUUID: String = NSScreen.main?.displayUUID ?? ""
 
     private var accessibilityObserver: Any?
-    private var shelfPreferenceCancellable: AnyCancellable?
     private var hudReplacementCancellable: AnyCancellable?
 
     private init() {
-        shelfPreferenceCancellable = Defaults.publisher(.shelfEnabled).sink { [weak self] change in
-            guard !change.newValue else { return }
-            Task { @MainActor in self?.currentView = .home }
-        }
         // Perform migration from name-based to UUID-based storage
         if preferredScreenUUID == nil, let legacyName = legacyPreferredScreenName {
             // Try to find screen by name and migrate to UUID

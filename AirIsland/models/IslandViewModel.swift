@@ -19,11 +19,6 @@ class IslandViewModel: NSObject, ObservableObject {
 
     @Published private(set) var notchState: NotchState = .closed
 
-    @Published var dragDetectorTargeting: Bool = false
-    @Published var generalDropTargeting: Bool = false
-    @Published var dropZoneTargeting: Bool = false
-    @Published var dropEvent: Bool = false
-    @Published var anyDropZoneTargeting: Bool = false
     var cancellables: Set<AnyCancellable> = []
     
     @Published var hideOnClosed: Bool = true
@@ -51,22 +46,6 @@ class IslandViewModel: NSObject, ObservableObject {
         notchSize = getClosedNotchSize(screenUUID: screenUUID)
         closedNotchSize = notchSize
 
-        Publishers.CombineLatest3($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting)
-            .map { shelf, drag, general in
-                shelf || drag || general
-            }
-            .assign(to: \.anyDropZoneTargeting, on: self)
-            .store(in: &cancellables)
-        
-        coordinator.$currentView
-            .removeDuplicates()
-            .sink { [weak self] view in
-                guard let self, self.notchState == .open else { return }
-                withAnimation(self.animation) {
-                    self.notchSize = view == .shelf ? shelfNotchSize : openNotchSize
-                }
-            }
-            .store(in: &cancellables)
         setupDetectorObserver()
     }
     
@@ -117,7 +96,7 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = coordinator.currentView == .shelf ? shelfNotchSize : openNotchSize
+        self.notchSize = openNotchSize
         self.notchState = .open
         
         // Force music information update when notch is opened
@@ -125,22 +104,11 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     func close() {
-        // Do not close while a share picker or sharing service is active
-        if SharingStateManager.shared.preventNotchClose {
-            return
-        }
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed
         self.isBatteryPopoverActive = false
 
-        // Set the current view to shelf if it contains files and the user enables openShelfByDefault
-        // Otherwise, if the user has not enabled openLastShelfByDefault, set the view to home
-    if Defaults[.shelfEnabled] && !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
-            coordinator.currentView = .shelf
-        } else {
-            coordinator.currentView = .home
-        }
     }
 
     func closeHello() {

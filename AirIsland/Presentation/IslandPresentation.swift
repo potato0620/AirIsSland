@@ -1,7 +1,7 @@
 import Foundation
 
 /// Presentation layer: maps the scheduled activity to a single visual surface.
-/// User-driven expanded content (music or shelf) is independent of transient emphasis.
+/// User-driven expanded music controls is independent of transient emphasis.
 enum IslandPresentation: Equatable {
     case idle
     case music(peek: Bool)

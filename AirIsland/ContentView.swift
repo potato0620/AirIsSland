@@ -25,7 +25,6 @@ struct ContentView: View {
     @ObservedObject var volumeManager = VolumeManager.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
-    @State private var anyDropDebounceTask: Task<Void, Never>?
 
     @State private var gestureProgress: CGFloat = .zero
 
@@ -45,7 +44,7 @@ struct ContentView: View {
 
     private var showsArtwork: Bool {
         if vm.notchState == .open {
-            return coordinator.currentView == .home && !coordinator.firstLaunch && !musicManager.songTitle.isEmpty
+            return !coordinator.firstLaunch && !musicManager.songTitle.isEmpty
         }
         return presentation.showsMusic && !vm.hideOnClosed
     }
@@ -84,7 +83,7 @@ struct ContentView: View {
                         expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
                         scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
                         isPlaying: musicManager.isPlaying, showsArtwork: showsArtwork,
-                        showsAmbience: vm.notchState == .open && coordinator.currentView == .home
+                        showsAmbience: vm.notchState == .open
                             && musicManager.isPlaying && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
                     ))
                     .shadow(
@@ -116,20 +115,6 @@ struct ContentView: View {
                                 handleUpGesture(translation: translation, phase: phase)
                             }
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: .sharingDidFinish)) { _ in
-                        if vm.notchState == .open && !isHovering && !vm.isBatteryPopoverActive {
-                            hoverTask?.cancel()
-                            hoverTask = Task {
-                                try? await Task.sleep(for: .milliseconds(100))
-                                guard !Task.isCancelled else { return }
-                                await MainActor.run {
-                                    if self.vm.notchState == .open && !self.isHovering && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
-                                        self.vm.close()
-                                    }
-                                }
-                            }
-                        }
-                    }
                     .onChange(of: vm.notchState) { _, newState in
                         if newState == .closed && isHovering {
                             withAnimation(islandAnimation) {
@@ -138,13 +123,13 @@ struct ContentView: View {
                         }
                     }
                     .onChange(of: vm.isBatteryPopoverActive) {
-                        if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
+                        if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open {
                             hoverTask?.cancel()
                             hoverTask = Task {
                                 try? await Task.sleep(for: .milliseconds(100))
                                 guard !Task.isCancelled else { return }
                                 await MainActor.run {
-                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
+                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open {
                                         self.vm.close()
                                     }
                                 }
@@ -172,38 +157,10 @@ struct ContentView: View {
         )
         // Animate presentation changes, never artwork resolution or playback progress.
         .animation(islandAnimation, value: vm.notchState)
-        .animation(islandAnimation, value: coordinator.currentView)
         .animation(islandAnimation, value: gestureProgress)
         .animation(islandAnimation, value: activities.current?.kind)
-        .background(dragDetector)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
-        .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
-            anyDropDebounceTask?.cancel()
-
-            if isTargeted {
-                if vm.notchState == .closed {
-                    coordinator.currentView = .shelf
-                    doOpen()
-                }
-                return
-            }
-
-            anyDropDebounceTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-
-                if vm.dropEvent {
-                    vm.dropEvent = false
-                    return
-                }
-
-                vm.dropEvent = false
-                if !SharingStateManager.shared.preventNotchClose {
-                    vm.close()
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -270,12 +227,7 @@ struct ContentView: View {
               .zIndex(2)
             if vm.notchState == .open {
                 VStack {
-                    switch coordinator.currentView {
-                    case .home:
-                        NotchHomeView()
-                    case .shelf:
-                        ShelfView()
-                    }
+                    NotchHomeView()
                 }
                 .transition(.opacity)
                 .zIndex(1)
@@ -283,7 +235,6 @@ struct ContentView: View {
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
             }
         }
-        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting))
     }
 
     @ViewBuilder
@@ -360,22 +311,6 @@ struct ContentView: View {
         )
     }
 
-    @ViewBuilder
-    var dragDetector: some View {
-        if Defaults[.shelfEnabled] && vm.notchState == .closed {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], isTargeted: $vm.dragDetectorTargeting) { providers in
-            vm.dropEvent = true
-            ShelfStateViewModel.shared.load(providers)
-            return true
-        }
-        } else {
-            EmptyView()
-        }
-    }
-
     private func doOpen() {
         withAnimation(islandAnimation) {
             vm.open()
@@ -423,7 +358,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive {
                         self.vm.close()
                     }
                 }
@@ -473,10 +408,8 @@ struct ContentView: View {
             withAnimation(islandAnimation) {
                 isHovering = false
             }
-            if !SharingStateManager.shared.preventNotchClose { 
-                gestureProgress = .zero
-                vm.close()
-            }
+            gestureProgress = .zero
+            vm.close()
 
             if Defaults[.enableHaptics] {
                 haptics.toggle()
@@ -530,26 +463,6 @@ private struct IslandExpansionSurface: AnimatableModifier {
 
     private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
         compact + (expanded - compact) * expansion
-    }
-}
-
-struct GeneralDropTargetDelegate: DropDelegate {
-    @Binding var isTargeted: Bool
-
-    func dropEntered(info: DropInfo) {
-        isTargeted = true
-    }
-
-    func dropExited(info: DropInfo) {
-        isTargeted = false
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .cancel)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        return false
     }
 }
 

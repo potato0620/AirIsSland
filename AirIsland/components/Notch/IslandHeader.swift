@@ -9,33 +9,13 @@ import Defaults
 import SwiftUI
 
 struct IslandHeader: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var vm: IslandViewModel
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
-    @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject private var activities = ActivityCoordinator.shared
     private var presentation: IslandPresentation { IslandPresentation(activity: activities.current) }
-    @Default(.shelfEnabled) private var shelfEnabled
-    @StateObject var tvm = ShelfStateViewModel.shared
     var body: some View {
         HStack(spacing: 0) {
-            HStack {
-                if shelfEnabled && (!tvm.isEmpty || coordinator.currentView == .shelf) {
-                    TabSelectionView()
-                } else if shelfEnabled && vm.notchState == .open {
-                    Button {
-                        withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) { coordinator.currentView = .shelf }
-                    } label: {
-                        Image(systemName: "tray").frame(width: 30, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Shelf")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .opacity(vm.notchState == .closed ? 0 : 1)
-            .blur(radius: vm.notchState == .closed ? 20 : 0)
-            .zIndex(2)
+            Color.clear.frame(maxWidth: .infinity)
 
             // Reserve space for the camera without painting a separate notch-shaped patch.
             Color.clear.frame(width: vm.closedNotchSize.width)

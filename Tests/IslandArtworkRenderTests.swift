@@ -28,7 +28,6 @@ enum IslandArtworkRenderProbe {
             let coordinator = IslandWindowCoordinator.shared
             coordinator.firstLaunch = false
             coordinator.helloAnimationRunning = false
-            Defaults[.shelfEnabled] = false
             Defaults[.settingsIconInNotch] = false
             Defaults[.showBatteryIndicator] = false
             Defaults[.musicLiveActivityEnabled] = true
