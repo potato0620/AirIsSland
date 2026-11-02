@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var gestureProgress: CGFloat = .zero
 
     @State private var haptics: Bool = false
+    @State private var measuredCompactWidth: CGFloat = 0
 
     @ObservedObject private var activities = ActivityCoordinator.shared
 
@@ -66,26 +67,40 @@ struct ContentView: View {
         
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                let mainLayout = NotchLayout()
-                    .frame(alignment: .top)
-                    .padding(
-                        .horizontal,
-                        vm.notchState == .open
-                        ? expandedHorizontalInset
-                        : cornerRadiusInsets.closed.bottom
-                    )
-                    .padding([.horizontal, .bottom], vm.notchState == .open ? MusicPlayerImageSizes.panelPadding : 0)
-                    .frame(width: vm.notchState == .open ? vm.notchSize.width : nil, alignment: .top)
+                let mainLayout = CompactNotchLayout()
+                    .padding(.horizontal, cornerRadiusInsets.closed.bottom)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
+                                guard width > 0, abs(measuredCompactWidth - width) > 0.1 else { return }
+                                if measuredCompactWidth == 0 {
+                                    // Seed the first measurement without animating from zero.
+                                    var transaction = Transaction(animation: nil)
+                                    transaction.disablesAnimations = true
+                                    withTransaction(transaction) { measuredCompactWidth = width }
+                                } else {
+                                    measuredCompactWidth = width
+                                }
+                            }
+                        }
+                    }
+                    .animation(islandAnimation, value: activities.current?.kind)
                     .modifier(IslandExpansionSurface(
                         vm: vm, expansion: vm.notchState == .open ? 1 : 0,
                         closedSurfaceHeight: closedSurfaceHeight,
-                        expandedHeight: openNotchSize.height,
+                        compactWidth: measuredCompactWidth,
+                        expandedSize: openNotchSize,
                         expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
+                        expandedContent: ExpandedNotchLayout(),
+                        keepsCompactVisible: coordinator.helloAnimationRunning,
                         scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork,
                         showsAmbience: vm.notchState == .open
                             && musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
                     ))
+                    .animation(islandAnimation, value: vm.notchState)
+                    .animation(islandAnimation, value: measuredCompactWidth)
+                    .animation(islandAnimation, value: closedSurfaceHeight)
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
                             ? .black.opacity(0.7) : .clear, radius: Defaults[.cornerRadiusScaling] ? 6 : 4
@@ -142,15 +157,13 @@ struct ContentView: View {
             anchor: .top
         )
         // Animate presentation changes, never artwork resolution or playback progress.
-        .animation(islandAnimation, value: vm.notchState)
         .animation(islandAnimation, value: gestureProgress)
-        .animation(islandAnimation, value: activities.current?.kind)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
     }
 
     @ViewBuilder
-    func NotchLayout() -> some View {
+    func CompactNotchLayout() -> some View {
         VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
             VStack(alignment: .leading) {
                 if coordinator.helloAnimationRunning {
@@ -165,7 +178,7 @@ struct ContentView: View {
                     Spacer()
                 } else {
                     if presentation == .power
-                        && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
+                        && Defaults[.showPowerStatusNotifications]
                     {
                         HStack(spacing: 0) {
                             HStack {
@@ -189,38 +202,37 @@ struct ContentView: View {
                             .frame(width: 76, alignment: .trailing)
                         }
                         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
-                      } else if presentation.feedback != nil && vm.notchState == .closed {
+                      } else if presentation.feedback != nil {
                           InlineHUD(type: activities.current?.kind ?? .volume, value: Binding(get: { activities.current?.value ?? 0 }, set: { activities.updateFeedbackValue($0) }), icon: activities.current?.icon ?? "", hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
-                      } else if presentation.showsMusic && vm.notchState == .closed && !vm.hideOnClosed {
+                      } else if presentation.showsMusic && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
-                       } else if vm.notchState == .open {
-                           // Keep the camera clearance; expanded content has no system feedback.
-                           Color.clear
-                               .frame(height: max(24, vm.effectiveClosedNotchHeight))
-                               .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
                        } else {
                            Rectangle().fill(.clear).frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
                        }
 
                   }
               }
-              .conditionalModifier(presentation.feedback != nil && vm.notchState == .closed) { view in
+              .conditionalModifier(presentation.feedback != nil) { view in
                   view
                       .fixedSize()
               }
               .zIndex(2)
+        }
+    }
+
+    private func ExpandedNotchLayout() -> some View {
+        VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
+            Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
             if vm.notchState == .open {
-                VStack {
-                    NotchHomeView()
-                }
-                .transition(.opacity)
-                .zIndex(1)
-                .allowsHitTesting(vm.notchState == .open)
-                .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
+                NotchHomeView()
+                    .transition(.opacity)
+                    .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
             }
         }
+        .padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
+        .padding(.bottom, MusicPlayerImageSizes.panelPadding)
     }
 
     @ViewBuilder
@@ -268,7 +280,7 @@ struct ContentView: View {
                         )
                         .frame(width: 50, alignment: .center)
                         .mask {
-                            AudioSpectrumView(isPlaying: $musicManager.isPlaying)
+                            AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && vm.notchState == .closed))
                                 .frame(width: 16, height: 12)
                         }
 
@@ -293,9 +305,7 @@ struct ContentView: View {
     }
 
     private func doOpen() {
-        withAnimation(islandAnimation) {
-            vm.open()
-        }
+        vm.open()
     }
 
     // MARK: - Hover Management
@@ -399,31 +409,53 @@ struct ContentView: View {
     }
 }
 
-/// The island outline and cover share the same rendered expansion value, rather
-/// than independently starting layout and matched-geometry animations.
-private struct IslandExpansionSurface: AnimatableModifier {
+/// Width, height, outline and cover use the same rendered expansion. A compact
+/// content change is interpolated here too, never by a second outer frame.
+private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier {
     let vm: IslandViewModel
     var expansion: CGFloat
-    let closedSurfaceHeight: CGFloat
-    let expandedHeight: CGFloat
+    var closedSurfaceHeight: CGFloat
+    var compactWidth: CGFloat
+    let expandedSize: CGSize
     let expandedLeadingInset: CGFloat
+    let expandedContent: ExpandedContent
+    let keepsCompactVisible: Bool
     let scalesCorners: Bool
     let artwork: NSImage
     let isArtworkPaused: Bool
     let showsArtwork: Bool
     let showsAmbience: Bool
 
-    var animatableData: CGFloat {
-        get { expansion }
-        set { expansion = newValue }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(expansion, AnimatablePair(compactWidth, closedSurfaceHeight)) }
+        set {
+            expansion = newValue.first
+            compactWidth = newValue.second.first
+            closedSurfaceHeight = newValue.second.second
+        }
     }
 
     func body(content: Content) -> some View {
         let closedHeight = vm.effectiveClosedNotchHeight
         let top = interpolate(cornerRadiusInsets.closed.top, scalesCorners ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top)
         let bottom = interpolate(cornerRadiusInsets.closed.bottom, scalesCorners ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom)
-        content
-            .frame(height: interpolate(closedSurfaceHeight, expandedHeight), alignment: .top)
+        content.opacity(keepsCompactVisible ? 1 : 1 - expansion)
+            .allowsHitTesting(vm.notchState == .closed)
+            .accessibilityHidden(vm.notchState == .open)
+            // The expansion already supplies each frame. Scope this to the
+            // layout itself; compact content retains its own transitions.
+            .animation(nil) { compact in
+                IslandSurfaceLayout(expansion: expansion, compactWidth: compactWidth, closedHeight: closedSurfaceHeight, expandedSize: expandedSize) {
+                    compact
+                }
+            }
+            .overlay(alignment: .top) {
+                expandedContent
+                    .frame(width: expandedSize.width, height: expandedSize.height, alignment: .top)
+                    .opacity(expansion)
+                    .allowsHitTesting(vm.notchState == .open)
+                    .accessibilityHidden(vm.notchState == .closed)
+            }
             .overlay {
                 AlbumArtPresentation(vm: vm, expansion: expansion, closedHeight: closedHeight,
                                      expandedLeadingInset: expandedLeadingInset,
@@ -444,6 +476,29 @@ private struct IslandExpansionSurface: AnimatableModifier {
 
     private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
         compact + (expanded - compact) * expansion
+    }
+}
+
+/// Measure the existing compact content without making its retiring/expanded
+/// siblings determine the surface width. Only the surface's rendered expansion
+/// drives this layout; there is no second width animation.
+private struct IslandSurfaceLayout: Layout {
+    let expansion: CGFloat
+    let compactWidth: CGFloat
+    let closedHeight: CGFloat
+    let expandedSize: CGSize
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = compactWidth > 0 ? compactWidth : subviews.first?.sizeThatFits(.unspecified).width ?? 0
+        return CGSize(width: width + (expandedSize.width - width) * expansion,
+                      height: closedHeight + (expandedSize.height - closedHeight) * expansion)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let compact = subviews.first else { return }
+        let width = compact.sizeThatFits(.unspecified).width
+        compact.place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top,
+                      proposal: ProposedViewSize(width: width, height: bounds.height))
     }
 }
 

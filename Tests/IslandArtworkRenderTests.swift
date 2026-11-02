@@ -10,10 +10,12 @@ func require(_ condition: Bool, _ message: @autoclosure () -> String) {
 enum IslandArtworkRenderProbe {
     static var appearances = 0
     static var reduceMotion = false
+    static var surfaceSize = CGSize.zero
 }
 
 @main struct IslandArtworkRenderTests {
     struct Frame {
+        var islandWidth: CGFloat
         var islandHeight: CGFloat
         var artworkWidth: CGFloat
         var badgeWidth: CGFloat
@@ -323,10 +325,20 @@ enum IslandArtworkRenderProbe {
                 }
             }
             let islandBottom = (0..<height).last { color(width / 2, $0).alphaComponent > 0.99 }!
+            let renderedHeight = CGFloat(islandBottom + 1) / scale
+            let progress = min(1, max(0, (renderedHeight - vm.effectiveClosedNotchHeight)
+                                      / (openNotchSize.height - vm.effectiveClosedNotchHeight)))
+            let topRadius = cornerRadiusInsets.closed.top + (cornerRadiusInsets.opened.top - cornerRadiusInsets.closed.top) * progress
+            let bottomRadius = cornerRadiusInsets.closed.bottom + (cornerRadiusInsets.opened.bottom - cornerRadiusInsets.closed.bottom) * progress
+            let sideRow = Int((topRadius + max(0, renderedHeight - topRadius - bottomRadius) / 2) * scale)
+            let opaqueColumns = (0..<width).filter { color($0, sideRow).alphaComponent > 0.99 }
+            let renderedWidth = CGFloat(opaqueColumns.last! - opaqueColumns.first! + 1) / scale + 2 * topRadius
+            require(abs(renderedWidth - IslandArtworkRenderProbe.surfaceSize.width) < 3,
+                    "Rendered outline and layout width diverged in \(filename): pixels \(renderedWidth), layout \(IslandArtworkRenderProbe.surfaceSize.width)")
             if !expectsCover {
                 require(right < left, "Hidden artwork remained visible in \(filename)")
                 require(badgeRight < badgeLeft, "Hidden badge remained visible in \(filename)")
-                return Frame(islandHeight: CGFloat(islandBottom + 1) / scale, artworkWidth: 0, badgeWidth: 0)
+                return Frame(islandWidth: renderedWidth, islandHeight: CGFloat(islandBottom + 1) / scale, artworkWidth: 0, badgeWidth: 0)
             }
             require(right >= left && bottom >= top, "Cover faded, duplicated or disappeared in \(filename)")
             let coverWidth = right - left + 1, coverHeight = bottom - top + 1
@@ -350,22 +362,33 @@ enum IslandArtworkRenderProbe {
             let side = (0..<width / 2).first { color($0, max(2, islandBottom / 2)).alphaComponent > 0.99 }!
             let corner = (0..<width / 2).first { color($0, max(0, islandBottom - 1)).alphaComponent > 0.99 }!
             require(corner - side > Int(2 * scale), "Island corner became rectangular in \(filename)")
-            return Frame(islandHeight: CGFloat(islandBottom + 1) / scale, artworkWidth: CGFloat(coverWidth) / scale,
+            return Frame(islandWidth: renderedWidth, islandHeight: CGFloat(islandBottom + 1) / scale, artworkWidth: CGFloat(coverWidth) / scale,
                          badgeWidth: badgeRight >= badgeLeft ? CGFloat(badgeRight - badgeLeft + 1) / scale : 0)
         }
         func wait(_ seconds: Double) async { try? await Task.sleep(for: .seconds(seconds)) }
+        for _ in 0..<6 {
+            await wait(0.016)
+            let startup = capture("initial-measurement")
+            require(startup.islandWidth >= vm.closedNotchSize.width,
+                    "Initial compact measurement animated from zero")
+        }
         await wait(0.65)
         let compact = capture("compact")
         vm.open()
         await wait(0.65)
         let expanded = capture("expanded")
+        require(compact.islandWidth > 0 && abs(expanded.islandWidth - openNotchSize.width) < 1, "Surface size probe did not measure the real layout: compact \(compact.islandWidth), expanded \(expanded.islandWidth)")
         require(expanded.badgeWidth > 10, "The regression must exercise a real music app badge")
-        func assertSynchronized(_ frame: Frame) {
+        func assertSynchronized(_ frame: Frame, compactWidth: CGFloat? = nil) {
             let islandProgress = (frame.islandHeight - compact.islandHeight) / (expanded.islandHeight - compact.islandHeight)
             let coverProgress = (frame.artworkWidth - compact.artworkWidth) / (expanded.artworkWidth - compact.artworkWidth)
             maximumResizeDifference = max(maximumResizeDifference, abs(islandProgress - coverProgress))
             require(abs(islandProgress - coverProgress) < 0.035,
                     "Cover and island use different resize rates in \(name), frame \(frames): island \(islandProgress), cover \(coverProgress), measured \(frame)")
+            let closedWidth = compactWidth ?? compact.islandWidth
+            let expectedWidth = closedWidth + (expanded.islandWidth - closedWidth) * islandProgress
+            require(abs(frame.islandWidth - expectedWidth) < 3,
+                    "Width and height diverged in \(name), frame \(frames): expected width \(expectedWidth), actual \(frame.islandWidth), height progress \(islandProgress)")
         }
         for expand in [false, true, false] {
             if expand { vm.open() } else { vm.close() }
@@ -379,27 +402,81 @@ enum IslandArtworkRenderProbe {
         let activities = ActivityCoordinator.shared
         activities.post(.musicChange)
         await wait(0.65)
-        _ = capture("peek")
+        let peek = capture("peek")
         for expand in [true, false] {
             if expand { vm.open() } else { vm.close() }
             for _ in 0..<22 {
+                activities.post(.musicChange) // Keep this target stable; expiry is exercised separately below.
                 await wait(0.016)
-                assertSynchronized(capture(expand ? "peek-expand" : "peek-collapse"))
+                assertSynchronized(capture(expand ? "peek-expand" : "peek-collapse"), compactWidth: peek.islandWidth)
             }
             await wait(0.3)
         }
+        activities.end(.musicChange)
+        await wait(0.65)
         for index in 0..<6 {
             if index % 2 == 0 { vm.open() } else { vm.close() }
             for _ in 0..<3 { await wait(0.016); assertSynchronized(capture("reverse")) }
         }
         await wait(0.65)
         _ = capture("settled")
+
+        // Ending a sneak peek while expanded must not resize the open panel.
+        // Then interrupt collapse with another peek and let it end during reversal.
+        activities.post(.musicChange)
+        vm.open()
+        await wait(0.65)
         activities.end(.musicChange)
+        for _ in 0..<8 {
+            await wait(0.016)
+            let held = capture("peek-end-expanded")
+            require(abs(held.islandWidth - expanded.islandWidth) < 3
+                        && abs(held.islandHeight - expanded.islandHeight) < 1,
+                    "Ending a sneak peek resized the expanded player")
+        }
+        activities.post(.musicChange)
+        vm.close()
+        for index in 0..<18 {
+            if index == 2 { vm.open() }
+            if index == 4 { activities.end(.musicChange); vm.close() }
+            await wait(0.016)
+            _ = capture("peek-end-reverse")
+        }
+        await wait(0.65)
+        let settled = capture("peek-end-settled")
+        require(abs(settled.islandWidth - compact.islandWidth) < 3
+                    && abs(settled.islandHeight - compact.islandHeight) < 1,
+                "Peek expiry/reversal did not return to the original compact size")
         activities.post(.volume, value: 0.5)
         await wait(0.65)
         let feedback = capture("feedback", expectsCover: false)
         require(abs(feedback.islandHeight - max(24, vm.closedNotchSize.height)) <= 1,
                 "System feedback height changed")
+        activities.end(.volume)
+        for kind in IslandActivityKind.allCases where kind.isSystemFeedback {
+            activities.post(kind, value: 0.5)
+            await wait(0.1)
+            let closedFeedback = capture("feedback-closed-\(kind.rawValue)", expectsCover: false)
+            require(abs(closedFeedback.islandHeight - compact.islandHeight) < 1,
+                    "Closed feedback height changed for \(kind)")
+            activities.end(kind)
+        }
+        activities.post(.power)
+        await wait(0.65)
+        let power = capture("power-closed", expectsCover: false)
+        require(abs(power.islandHeight - compact.islandHeight) < 1,
+                "Power notification changed its compact height")
+        activities.end(.power)
+        activities.setMusicActive(false)
+        await wait(0.65)
+        let idle = capture("idle", expectsCover: false)
+        require(abs(idle.islandHeight - compact.islandHeight) < 1 && idle.islandWidth < compact.islandWidth,
+                "Idle surface did not retain its original compact layout")
+        activities.setMusicActive(true)
+        await wait(0.65)
+        let restored = capture("music-restored")
+        require(abs(restored.islandWidth - compact.islandWidth) < 3,
+                "Music failed to restore its compact size after system feedback and idle")
         vm.open()
         await wait(0.65)
         for kind in IslandActivityKind.allCases where kind.isSystemFeedback {
