@@ -8,18 +8,27 @@ struct GeneralSettings: View {
         Form {
             Section("System features") {
                 LaunchAtLogin.Toggle { Text("Launch at login") }
-                Defaults.Toggle("Show menu bar icon", key: .menubarIcon)
+                Defaults.Toggle(key: .menubarIcon) {
+                    Text("Show menu bar icon")
+                }
             }
-            Section("Privacy and Compatibility") {
-                Defaults.Toggle("Show notch on lock screen", key: .showOnLockScreen)
-                Defaults.Toggle("Hide from screen recording", key: .hideFromScreenRecording)
-                Defaults.Toggle("Extend hover area", key: .extendHoverArea)
-                Defaults.Toggle("Hide title bar", key: .hideTitleBar)
+            Section {
+                Defaults.Toggle(key: .showOnLockScreen) {
+                    Text("Show notch on lock screen")
+                }
+                Defaults.Toggle(key: .hideFromScreenRecording) {
+                    Text("Hide from screen recording")
+                }
+            } header: {
+                Text("Privacy and Compatibility")
+            } footer: {
+                SettingsActionRow {
+                    Button { NSApp.terminate(nil) } label: {
+                        Text("Quit app")
+                    }
+                }
             }
         }
         .navigationTitle("General")
-        .toolbar {
-            Button("Quit app") { NSApp.terminate(nil) }
-        }
     }
 }

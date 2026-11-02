@@ -14,42 +14,16 @@ enum HideNotchOption: String, Defaults.Serializable {
     case never
 }
 
-// Define notification names at file scope
-extension Notification.Name {
-    static let mediaControllerChanged = Notification.Name("mediaControllerChanged")
-}
-
-// Media controller types for selection in settings
-enum MediaControllerType: String, CaseIterable, Identifiable, Defaults.Serializable {
-    case nowPlaying = "Now Playing"
-    case appleMusic = "Apple Music"
-    case spotify = "Spotify"
-    case youtubeMusic = "YouTube Music"
-    
-    var id: String { self.rawValue }
-}
-
-// Action to perform when Option (⌥) is held while pressing media keys
-enum OptionKeyAction: String, CaseIterable, Identifiable, Defaults.Serializable {
-    case openSettings = "Open System Settings"
-    case showHUD = "Show HUD"
-    case none = "No Action"
-
-    var id: String { self.rawValue }
-}
-
 extension Defaults.Keys {
     // MARK: General
     static let menubarIcon = Key<Bool>("menubarIcon", default: true)
     static let showOnAllDisplays = Key<Bool>("showOnAllDisplays", default: false)
     static let automaticallySwitchDisplay = Key<Bool>("automaticallySwitchDisplay", default: true)
-    static let releaseName = Key<String>("releaseName", default: "Flying Rabbit 🐇🪽")
     
     // MARK: Behavior
     static let minimumHoverDuration = Key<TimeInterval>("minimumHoverDuration", default: 0.3)
     static let enableHaptics = Key<Bool>("enableHaptics", default: true)
     static let openNotchOnHover = Key<Bool>("openNotchOnHover", default: true)
-    static let extendHoverArea = Key<Bool>("extendHoverArea", default: false)
     static let notchHeightMode = Key<WindowHeightMode>(
         "notchHeightMode",
         default: WindowHeightMode.matchRealNotchSize
@@ -93,8 +67,6 @@ extension Defaults.Keys {
     // MARK: HUD
     static let showHUDPercentage = Key<Bool>("showHUDPercentage", default: true)
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
-    // Option key modifier behaviour for media keys
-    static let optionKeyAction = Key<OptionKeyAction>("optionKeyAction", default: OptionKeyAction.openSettings)
     
     // MARK: Shelf
     static let shelfEnabled = Key<Bool>("boringShelf", default: true)
@@ -109,21 +81,4 @@ extension Defaults.Keys {
     // MARK: Fullscreen Media Detection
     static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .nowPlayingOnly)
     
-    // MARK: Media Controller
-    @MainActor static let mediaController = Key<MediaControllerType>("mediaController", default: defaultMediaController)
-    
-    // MARK: Advanced Settings
-    // Show or hide the title bar
-    static let hideTitleBar = Key<Bool>("hideTitleBar", default: true)
-    
-    // Helper to determine the default media controller based on NowPlaying deprecation status
-    @MainActor static var defaultMediaController: MediaControllerType {
-        if MusicManager.shared.isNowPlayingDeprecated {
-            return .appleMusic
-        } else {
-            return .nowPlaying
-        }
-    }
-
-    static let didClearLegacyURLCacheV1 = Key<Bool>("didClearLegacyURLCache_v1", default: false)
 }

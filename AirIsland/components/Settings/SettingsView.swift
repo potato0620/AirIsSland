@@ -1,7 +1,7 @@
 import SwiftUI
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
-    case activities, presentation, general, about
+    case general, activities, presentation, about
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
@@ -30,25 +30,25 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
-    @State private var selectedPage: SettingsPage? = .activities
+    @State private var selectedPage: SettingsPage? = .general
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             List(SettingsPage.allCases, selection: $selectedPage) { page in
-                NavigationLink(value: page) {
-                    Label(page.title, systemImage: page.symbol)
-                }
+                Label(page.title, systemImage: page.symbol)
+                    .tag(page)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(190)
-            .toolbar(removing: .sidebarToggle)
-        } detail: {
-            (selectedPage ?? .activities).destination
-                .id(selectedPage)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: 190)
+
+            Divider()
+
+            NavigationStack {
+                (selectedPage ?? .general).destination
+            }
+            .id(selectedPage)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("").frame(width: 0, height: 0).accessibilityHidden(true)
@@ -58,5 +58,24 @@ struct SettingsView: View {
         .frame(minWidth: 760, minHeight: 600)
         .background(Color(NSColor.windowBackgroundColor))
         .tint(.accentColor)
+    }
+}
+
+struct SettingsActionRow<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Spacer(minLength: 0)
+            content
+        }
+        .font(.body)
+        .controlSize(.regular)
+        .buttonStyle(.bordered)
+        .padding(.top, 8)
     }
 }

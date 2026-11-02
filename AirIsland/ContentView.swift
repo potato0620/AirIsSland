@@ -57,24 +57,6 @@ struct ContentView: View {
         return vm.effectiveClosedNotchHeight
     }
 
-    private var computedChinWidth: CGFloat {
-        var chinWidth: CGFloat = vm.closedNotchSize.width
-
-        if presentation == .power
-            && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
-        {
-            chinWidth = openNotchSize.width
-        } else if presentation.showsMusic
-            && vm.notchState == .closed
-            && !vm.hideOnClosed
-        {
-            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
-
-        }
-
-        return chinWidth
-    }
-
     var body: some View {
         // Calculate scale based on gesture progress only
         let gestureScale: CGFloat = {
@@ -178,11 +160,6 @@ struct ContentView: View {
                         }
                         .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
                     }
-                if vm.chinHeight > 0 {
-                    Rectangle()
-                        .fill(Color.black.opacity(0.01))
-                        .frame(width: computedChinWidth, height: vm.chinHeight)
-                }
             }
         }
         .padding(.bottom, 8)

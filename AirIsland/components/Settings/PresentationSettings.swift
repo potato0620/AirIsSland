@@ -8,9 +8,15 @@ struct PresentationSettings: View {
         Form {
             DisplayInteractionSections()
             Section("Appearance") {
-                Defaults.Toggle("Tint music with album colors", key: .coloredSpectrogram)
-                Defaults.Toggle("Show settings icon in notch", key: .settingsIconInNotch)
-                Defaults.Toggle("Show percentage", key: .showHUDPercentage)
+                Defaults.Toggle(key: .coloredSpectrogram) {
+                    Text("Tint music with album colors")
+                }
+                Defaults.Toggle(key: .settingsIconInNotch) {
+                    Text("Show settings icon in notch")
+                }
+                Defaults.Toggle(key: .showHUDPercentage) {
+                    Text("Show volume and brightness percentage")
+                }
             }
             Shortcuts()
         }

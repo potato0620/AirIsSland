@@ -126,31 +126,15 @@ final class MediaKeyInterceptor {
         let shift = flags.contains(.shift)
         let command = flags.contains(.command)
         
-        // Handle option key action (without shift)
+        // Leave native Option shortcuts to macOS; Option+Shift fine adjustment
+        // continues through the normal media-key path below.
         if option && !shift {
-            if handleOptionAction(for: keyType, command: command) {
-                return nil
-            }
+            return Unmanaged.passRetained(cgEvent)
         }
         
         // Handle normal key press
         handleKeyPress(keyType: keyType, option: option, shift: shift, command: command)
         return nil
-    }
-    
-    private func handleOptionAction(for keyType: NXKeyType, command: Bool) -> Bool {
-        let action = Defaults[.optionKeyAction]
-        
-        switch action {
-        case .openSettings:
-            openSystemSettings(for: keyType, command: command)
-            return true
-        case .showHUD:
-            showHUD(for: keyType, command: command)
-            return true
-        case .none:
-            return true
-        }
     }
     
     private func prepareAudioPlayerIfNeeded() {
@@ -233,44 +217,4 @@ final class MediaKeyInterceptor {
         }
     }
     
-    private func showHUD(for keyType: NXKeyType, command: Bool) {
-        Task { @MainActor in
-            switch keyType {
-            case .soundUp, .soundDown, .mute:
-                let v = VolumeManager.shared.rawVolume
-                ActivityCoordinator.shared.post(.volume, value: Double(v))
-            case .brightnessUp, .brightnessDown:
-                if command {
-                    let v = KeyboardBacklightManager.shared.rawBrightness
-                    ActivityCoordinator.shared.post(.backlight, value: Double(v))
-                } else {
-                    let v = BrightnessManager.shared.rawBrightness
-                    ActivityCoordinator.shared.post(.brightness, value: Double(v))
-                }
-            case .keyboardBrightnessUp, .keyboardBrightnessDown:
-                let v = KeyboardBacklightManager.shared.rawBrightness
-                ActivityCoordinator.shared.post(.backlight, value: Double(v))
-            }
-        }
-    }
-    
-    private func openSystemSettings(for keyType: NXKeyType, command: Bool) {
-        let urlString: String
-        
-        switch keyType {
-        case .soundUp, .soundDown, .mute:
-            urlString = "x-apple.systempreferences:com.apple.preference.sound"
-        case .brightnessUp, .brightnessDown:
-            if command {
-                urlString = "x-apple.systempreferences:com.apple.preference.keyboard"
-            } else {
-                urlString = "x-apple.systempreferences:com.apple.preference.displays"
-            }
-        case .keyboardBrightnessUp, .keyboardBrightnessDown:
-            urlString = "x-apple.systempreferences:com.apple.preference.keyboard"
-        }
-        
-        guard let url = URL(string: urlString) else { return }
-        NSWorkspace.shared.open(url)
-    }
 }

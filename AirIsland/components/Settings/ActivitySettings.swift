@@ -59,8 +59,6 @@ struct ActivitySettings: View {
                             .padding(.vertical, 4)
                         }
                     }
-                } footer: {
-                    Text("The island stays quiet when idle. Brief updates retract automatically.")
                 }
             }
             .navigationTitle("Activities")
@@ -71,48 +69,11 @@ struct ActivitySettings: View {
 struct MusicActivitySettings: View {
     @Default(.musicLiveActivityEnabled) private var musicLiveActivityEnabled
     @Default(.waitInterval) var waitInterval
-    @Default(.mediaController) var mediaController
     @Default(.enableSneakPeek) private var enableSneakPeek
 
 
     var body: some View {
         Form {
-            Section {
-                Picker("Music Source", selection: $mediaController) {
-                    ForEach(availableMediaControllers) { controller in
-                        Text(LocalizedStringKey(controller.rawValue)).tag(controller)
-                    }
-                }
-                .onChange(of: mediaController) { _, _ in
-                    NotificationCenter.default.post(
-                        name: Notification.Name.mediaControllerChanged,
-                        object: nil
-                    )
-                }
-            } header: {
-                Text("Media Source")
-            } footer: {
-                if MusicManager.shared.isNowPlayingDeprecated {
-                    HStack {
-                        Text("YouTube Music requires this third-party app to be installed: ")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                        Link(
-                            "https://github.com/pear-devs/pear-desktop",
-                            destination: URL(string: "https://github.com/pear-devs/pear-desktop")!
-                        )
-                        .font(.caption)
-                        .foregroundColor(.blue)  // Ensures it's visibly a link
-                    }
-                } else {
-                    Text(
-                        "'Now Playing' was the only option on previous versions and works with all media apps."
-                    )
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                }
-            }
-
             Section {
                 Toggle(
                     "Show music live activity",
@@ -140,19 +101,9 @@ struct MusicActivitySettings: View {
         .navigationTitle("Media")
     }
 
-    // Only show controller options that are available on this macOS version
-    private var availableMediaControllers: [MediaControllerType] {
-        if MusicManager.shared.isNowPlayingDeprecated {
-            return MediaControllerType.allCases.filter { $0 != .nowPlaying }
-        } else {
-            return MediaControllerType.allCases
-        }
-    }
 }
 
 struct SystemFeedbackSettings: View {
-    @Default(.optionKeyAction) var optionKeyAction
-    @Default(.hudReplacement) var hudReplacement
     @State private var accessibilityAuthorized = false
 
     var body: some View {
@@ -191,20 +142,6 @@ struct SystemFeedbackSettings: View {
                     .padding(.top, 6)
                 }
             }
-
-            Section {
-                Picker("Option key behaviour", selection: $optionKeyAction) {
-                    ForEach(OptionKeyAction.allCases) { opt in
-                        Text(LocalizedStringKey(opt.rawValue)).tag(opt)
-                    }
-                }
-
-
-            } header: {
-                Text("General")
-            }
-            .disabled(!hudReplacement)
-
 
         }
         .accentColor(.effectiveAccent)

@@ -9,7 +9,6 @@ import SwiftUI
 
 enum OnboardingStep {
     case welcome
-    case musicPermission
     case finished
 }
 
@@ -25,20 +24,10 @@ struct OnboardingView: View {
             case .welcome:
                 WelcomeView {
                     withAnimation(.easeInOut(duration: 0.6)) {
-                        step = .musicPermission
+                        IslandWindowCoordinator.shared.firstLaunch = false
+                        step = .finished
                     }
                 }
-                .transition(.opacity)
-
-            case .musicPermission:
-                MusicControllerSelectionView(
-                    onContinue: {
-                        withAnimation(.easeInOut(duration: 0.6)) {
-                            IslandWindowCoordinator.shared.firstLaunch = false
-                            step = .finished
-                        }
-                    }
-                )
                 .transition(.opacity)
 
             case .finished:

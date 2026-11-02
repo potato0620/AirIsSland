@@ -116,25 +116,6 @@ class IslandViewModel: NSObject, ObservableObject {
         return noNotchAndFullscreen ? 0 : closedNotchSize.height
     }
 
-    var chinHeight: CGFloat {
-        if !Defaults[.hideTitleBar] {
-            return 0
-        }
-
-        guard let currentScreen = screenUUID.flatMap({ NSScreen.screen(withUUID: $0) }) else {
-            return 0
-        }
-
-        if notchState == .open { return 0 }
-
-        let menuBarHeight = currentScreen.frame.maxY - currentScreen.visibleFrame.maxY
-        let currentHeight = effectiveClosedNotchHeight
-
-        if currentHeight == 0 { return 0 }
-
-        return max(0, menuBarHeight - currentHeight)
-    }
-
     func open() {
         self.notchSize = coordinator.currentView == .shelf ? shelfNotchSize : openNotchSize
         self.notchState = .open
