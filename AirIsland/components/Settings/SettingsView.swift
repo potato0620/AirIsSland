@@ -19,9 +19,9 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .about: return "info.circle"
         }
     }
-    @ViewBuilder var destination: some View {
+    @ViewBuilder func destination(selectActivity: @escaping (ActivitySettingsPage) -> Void) -> some View {
         switch self {
-        case .activities: ActivitySettings()
+        case .activities: ActivitySettings(selectPage: selectActivity)
         case .presentation: PresentationSettings()
         case .general: GeneralSettings()
         case .about: About()
@@ -31,29 +31,58 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .general
+    @State private var activityPage: ActivitySettingsPage?
+
+    private var page: SettingsPage { selectedPage ?? .general }
 
     var body: some View {
         HStack(spacing: 0) {
-            List(SettingsPage.allCases, selection: $selectedPage) { page in
-                Label(page.title, systemImage: page.symbol)
-                    .tag(page)
+            VStack(spacing: 0) {
+                Color.clear.frame(height: 52)
+                List(SettingsPage.allCases, selection: $selectedPage) { page in
+                    Label(page.title, systemImage: page.symbol)
+                        .tag(page)
+                }
+                .listStyle(.sidebar)
             }
-            .listStyle(.sidebar)
             .frame(width: 190)
 
             Divider()
 
-            NavigationStack {
-                (selectedPage ?? .general).destination
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Button {
+                        activityPage = nil
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 17, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(activityPage == nil ? .tertiary : .primary)
+                    .disabled(activityPage == nil)
+                    .accessibilityLabel(Text("Back"))
+                    Text(activityPage?.title ?? page.title)
+                        .font(.title2.bold())
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+
+                Divider()
+
+                Group {
+                    if let activityPage {
+                        activityPage.destination
+                    } else {
+                        page.destination { activityPage = $0 }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .id(selectedPage)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("").frame(width: 0, height: 0).accessibilityHidden(true)
-            }
-        }
+        .ignoresSafeArea(.container, edges: .top)
+        .onChange(of: selectedPage) { activityPage = nil }
         .formStyle(.grouped)
         .frame(minWidth: 760, minHeight: 600)
         .background(Color(NSColor.windowBackgroundColor))

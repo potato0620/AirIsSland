@@ -23,7 +23,6 @@ class IslandViewModel: NSObject, ObservableObject {
     
     @Published var hideOnClosed: Bool = true
 
-    @Published var isBatteryPopoverActive: Bool = false
 
     @Published var screenUUID: String?
 
@@ -107,7 +106,6 @@ class IslandViewModel: NSObject, ObservableObject {
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed
-        self.isBatteryPopoverActive = false
 
     }
 

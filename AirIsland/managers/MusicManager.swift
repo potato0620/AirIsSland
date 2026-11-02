@@ -300,9 +300,7 @@ class MusicManager: ObservableObject {
         withAnimation(.smooth) {
             self.albumArtTrackIdentifier = trackIdentifier
             self.albumArt = newAlbumArt
-            if Defaults[.coloredSpectrogram] {
-                self.calculateAverageColor()
-            }
+            self.calculateAverageColor()
         }
     }
 
@@ -315,11 +313,15 @@ class MusicManager: ObservableObject {
         return min(max(0, estimated), songDuration)
     }
 
-    func calculateAverageColor() {
-        albumArt.averageColor { [weak self] color in
+    private func calculateAverageColor() {
+        let image = albumArt
+        let trackIdentifier = albumArtTrackIdentifier
+        image.averageColor { [weak self] color in
             DispatchQueue.main.async {
+                guard let self, self.albumArt === image,
+                      self.albumArtTrackIdentifier == trackIdentifier else { return }
                 withAnimation(.smooth) {
-                    self?.avgColor = color ?? .white
+                    self.avgColor = color ?? .white
                 }
             }
         }

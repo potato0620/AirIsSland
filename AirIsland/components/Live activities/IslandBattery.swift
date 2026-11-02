@@ -1,5 +1,4 @@
 import SwiftUI
-import Defaults
 
 /// A view that displays the battery status with an icon and charging indicator.
 struct BatteryView: View {
@@ -9,7 +8,6 @@ struct BatteryView: View {
     var isCharging: Bool
     var isInLowPowerMode: Bool
     var batteryWidth: CGFloat = 26
-    var isForNotification: Bool
 
     var icon: String = "battery.0"
 
@@ -59,7 +57,7 @@ struct BatteryView: View {
                 )
                 .padding(.leading, 2)
 
-            if iconStatus != "" && (isForNotification || Defaults[.showPowerStatusIcons]) {
+            if iconStatus != "" {
                 ZStack {
                     Image(iconStatus)
                         .resizable()
@@ -74,196 +72,4 @@ struct BatteryView: View {
             }
         }
     }
-}
-
-struct ScaleButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: configuration.isPressed)
-    }
-}
-
-/// A view that displays detailed battery information and settings.
-struct BatteryMenuView: View {
-    
-    var isPluggedIn: Bool
-    var isCharging: Bool
-    var levelBattery: Float
-    var maxCapacity: Float
-    var timeToFullCharge: Int
-    var isInLowPowerMode: Bool
-    var onDismiss: () -> Void
-
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-
-            HStack {
-                Text("Battery Status")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                Spacer()
-                Text("\(Int(levelBattery))%")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Max Capacity: \(Int(maxCapacity))%")
-                    .font(.subheadline)
-                    .fontWeight(.regular)
-                if isInLowPowerMode {
-                    Label("Low Power Mode", systemImage: "bolt.circle")
-                        .font(.subheadline)
-                        .fontWeight(.regular)
-                }
-                if isCharging {
-                    Label("Charging", systemImage: "bolt.fill")
-                        .font(.subheadline)
-                        .fontWeight(.regular)
-                }
-                if isPluggedIn {
-                    Label("Plugged In", systemImage: "powerplug.fill")
-                        .font(.subheadline)
-                        .fontWeight(.regular)
-                }
-                if timeToFullCharge > 0 {
-                    Label("Time to Full Charge: \(timeToFullCharge) min", systemImage: "clock")
-                        .font(.subheadline)
-                        .fontWeight(.regular)
-                }
-                if !isCharging && isPluggedIn && levelBattery >= 80 {
-                    Label("Charging on Hold: Desktop Mode", systemImage: "desktopcomputer")
-                        .font(.subheadline)
-                        .fontWeight(.regular)
-                }
-                    
-            }
-            .padding(.vertical, 8)
-
-            Divider().background(Color.white)
-
-            Button(action: openBatteryPreferences) {
-                Label("Battery Settings", systemImage: "gearshape")
-                    .fontWeight(.regular)
-            }
-            .frame(maxWidth: .infinity)
-            .buttonStyle(.plain)
-            .padding(.vertical, 8)
-        }
-        .padding()
-        .frame(width: 280)
-        .foregroundColor(.white)
-    }
-
-    private func openBatteryPreferences() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.battery") {
-            openURL(url)
-            onDismiss()
-        }
-    }
-}
-
-/// A view that displays the battery status and allows interaction to show detailed information.
-struct IslandBatteryView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    
-    @State var batteryWidth: CGFloat = 26
-    var isCharging: Bool = false
-    var isInLowPowerMode: Bool = false
-    var isPluggedIn: Bool = false
-    var levelBattery: Float = 0
-    var maxCapacity: Float = 0
-    var timeToFullCharge: Int = 0
-    @State var isForNotification: Bool = false
-    
-    @State private var showPopupMenu: Bool = false
-    @State private var isPressed: Bool = false
-    @State private var isHoveringButton: Bool = false
-    @State private var isHoveringPopover: Bool = false
-    @State private var hideTask: Task<Void, Never>? = nil
-
-    @EnvironmentObject var vm: IslandViewModel
-
-    var body: some View {
-        Button(action: {
-            withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) {
-                showPopupMenu.toggle()
-            }
-        }) {
-            HStack {
-                if Defaults[.showBatteryPercentage] {
-                    Text("\(Int32(levelBattery))%")
-                        .font(.callout)
-                        .foregroundStyle(.white)
-                }
-                BatteryView(
-                    levelBattery: levelBattery,
-                    isPluggedIn: isPluggedIn,
-                    isCharging: isCharging,
-                    isInLowPowerMode: isInLowPowerMode,
-                    batteryWidth: batteryWidth,
-                    isForNotification: isForNotification
-                )
-            }
-        }
-        .buttonStyle(ScaleButtonStyle())
-        .popover(
-            isPresented: $showPopupMenu,
-            arrowEdge: .bottom) {
-            BatteryMenuView(
-                isPluggedIn: isPluggedIn,
-                isCharging: isCharging,
-                levelBattery: levelBattery,
-                maxCapacity: maxCapacity,
-                timeToFullCharge: timeToFullCharge,
-                isInLowPowerMode: isInLowPowerMode,
-                onDismiss: { 
-                    showPopupMenu = false
-                }
-            )
-            .onHover { hovering in
-                isHoveringPopover = hovering
-                if hovering {
-                    hideTask?.cancel()
-                    hideTask = nil
-                } else {
-                    scheduleHideIfNeeded()
-                }
-            }
-        }
-        .onChange(of: showPopupMenu) {
-            vm.isBatteryPopoverActive = showPopupMenu
-        }
-        .onDisappear {
-            hideTask?.cancel()
-            hideTask = nil
-        }
-    }
-
-    private func scheduleHideIfNeeded() {
-        if isHoveringButton || isHoveringPopover { return }
-        hideTask?.cancel()
-        hideTask = Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            await MainActor.run { withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion)) { showPopupMenu = false } }
-        }
-    }
-}
-
-#Preview {
-    IslandBatteryView(
-        batteryWidth: 30,
-        isCharging: false,
-        isInLowPowerMode: false,
-        isPluggedIn: true,
-        levelBattery: 80,
-        maxCapacity: 100,
-        timeToFullCharge: 10,
-        isForNotification: false
-    ).frame(width: 200, height: 200)
 }

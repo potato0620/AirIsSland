@@ -34,6 +34,5 @@ struct About: View {
                 }
             }
         }
-        .navigationTitle("About")
     }
 }

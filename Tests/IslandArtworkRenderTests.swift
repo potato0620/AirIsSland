@@ -28,14 +28,11 @@ enum IslandArtworkRenderProbe {
             let coordinator = IslandWindowCoordinator.shared
             coordinator.firstLaunch = false
             coordinator.helloAnimationRunning = false
-            Defaults[.settingsIconInNotch] = false
-            Defaults[.showBatteryIndicator] = false
             Defaults[.musicLiveActivityEnabled] = true
             Defaults[.enableSneakPeek] = true
             Defaults[.hudReplacement] = true
             Defaults[.enableShadow] = false
             Defaults[.cornerRadiusScaling] = true
-            Defaults[.coloredSpectrogram] = false
             let music = MusicManager.shared
             music.songTitle = "Deep Green"
             music.artistName = "Christian Kuria"
@@ -74,6 +71,8 @@ enum IslandArtworkRenderProbe {
 
     @MainActor static func verifyArtworkReadiness() async {
         let music = MusicManager.shared
+        // An existing installation may have disabled the removed appearance option.
+        UserDefaults.standard.set(false, forKey: "coloredSpectrogram")
         func imageData(_ size: CGFloat) -> Data {
             NSBitmapImageRep(data: artwork(size: size).tiffRepresentation!)!
                 .representation(using: .png, properties: [:])!
@@ -84,6 +83,10 @@ enum IslandArtworkRenderProbe {
         state.artwork = imageData(200)
         music.updateFromPlaybackState(state)
         await settle()
+        let coverColor = music.avgColor.usingColorSpace(.deviceRGB)!
+        require(coverColor.redComponent < 0.94 && coverColor.greenComponent > 0.97
+                    && coverColor.blueComponent > 0.97,
+                "Artwork color must be calculated even when the removed preference was disabled")
         let initial = music.albumArtTrackIdentifier
         let initialImage = ObjectIdentifier(music.albumArt)
 
@@ -272,6 +275,18 @@ enum IslandArtworkRenderProbe {
             let width = rep.pixelsWide, height = rep.pixelsHigh
             let scale = CGFloat(width) / host.bounds.width
             func color(_ x: Int, _ y: Int) -> NSColor { rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)! }
+            if phase.hasPrefix("feedback-expanded") {
+                let left = Int((host.bounds.width - vm.notchSize.width) / 2 * scale + 24 * scale)
+                let right = width - left
+                let headerBottom = Int((max(24, vm.effectiveClosedNotchHeight) - 2) * scale)
+                for y in stride(from: Int(2 * scale), to: headerBottom, by: 2) {
+                    for x in stride(from: left, to: right, by: 2) {
+                        let pixel = color(x, y)
+                        require(pixel.alphaComponent > 0.99 && max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.02,
+                                "Expanded header displayed system feedback in \(filename) at (\(x), \(y))")
+                    }
+                }
+            }
             func isCover(_ color: NSColor) -> Bool {
                 color.alphaComponent > 0.99 && color.redComponent > 0.78 && color.redComponent < 0.94
                     && color.greenComponent > 0.97 && color.blueComponent > 0.97
@@ -387,8 +402,14 @@ enum IslandArtworkRenderProbe {
                 "System feedback height changed")
         vm.open()
         await wait(0.65)
-        _ = capture("feedback-expanded")
-        activities.end(.volume)
+        for kind in IslandActivityKind.allCases where kind.isSystemFeedback {
+            activities.post(kind, value: 0.5)
+            await wait(0.1)
+            let feedbackExpanded = capture("feedback-expanded-\(kind.rawValue)")
+            require(vm.notchState == .open && abs(feedbackExpanded.islandHeight - expanded.islandHeight) < 1,
+                    "System feedback changed the expanded panel")
+            activities.end(kind)
+        }
         require(IslandArtworkRenderProbe.appearances == 1,
                      "Artwork view was recreated \(IslandArtworkRenderProbe.appearances) times across layout transitions")
         print("PASS: \(name), \(frames) frames, 1 persistent artwork view, maximum resize difference \(maximumResizeDifference)")

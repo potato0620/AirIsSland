@@ -2,48 +2,46 @@ import Defaults
 import SwiftUI
 
 /// Add future approved activities here without adding another top-level settings tab.
-private enum ActivitySettingsPage: String, CaseIterable, Identifiable {
-    case music, feedback, power
+enum ActivitySettingsPage: String, CaseIterable, Identifiable {
+    case music, feedback
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
         case .music: return "Media"
         case .feedback: return "System Feedback"
-        case .power: return "Power Changes"
         }
     }
     var symbol: String {
         switch self {
         case .music: return "music.note"
         case .feedback: return "dial.medium.fill"
-        case .power: return "battery.100.bolt"
         }
     }
     var summary: LocalizedStringKey {
         switch self {
         case .music: return "Now playing and essential playback controls."
-        case .feedback: return "Brief feedback when adjusting volume and brightness."
-        case .power: return "Brief updates when power or charging changes."
+        case .feedback: return "Brief feedback for system adjustments and power changes."
         }
     }
     @ViewBuilder var destination: some View {
         switch self {
         case .music: MusicActivitySettings()
         case .feedback: SystemFeedbackSettings()
-        case .power: PowerActivitySettings()
         }
     }
 }
 
 struct ActivitySettings: View {
+    var selectPage: (ActivitySettingsPage) -> Void
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    ForEach(ActivitySettingsPage.allCases) { page in
-                        NavigationLink {
-                            page.destination
-                        } label: {
+        Form {
+            Section {
+                ForEach(ActivitySettingsPage.allCases) { page in
+                    Button {
+                        selectPage(page)
+                    } label: {
+                        HStack {
                             Label {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(page.title)
@@ -52,12 +50,16 @@ struct ActivitySettings: View {
                             } icon: {
                                 Image(systemName: page.symbol)
                             }
-                            .padding(.vertical, 4)
+                            Spacer()
+                            Image(systemName: "chevron.forward")
+                                .foregroundStyle(.tertiary)
                         }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("Activities")
         }
     }
 }
@@ -94,7 +96,6 @@ struct MusicActivitySettings: View {
 
         }
         .accentColor(.effectiveAccent)
-        .navigationTitle("Media")
     }
 
 }
@@ -139,9 +140,14 @@ struct SystemFeedbackSettings: View {
                 }
             }
 
+            Section {
+                Defaults.Toggle(key: .showPowerStatusNotifications) {
+                    Text("Show power status notifications")
+                }
+            }
+
         }
         .accentColor(.effectiveAccent)
-        .navigationTitle("System Feedback")
         .task {
             accessibilityAuthorized = await XPCHelperClient.shared.isAccessibilityAuthorized()
         }
@@ -156,34 +162,5 @@ struct SystemFeedbackSettings: View {
                 accessibilityAuthorized = granted
             }
         }
-    }
-}
-
-struct PowerActivitySettings: View {
-    var body: some View {
-        Form {
-            Section {
-                Defaults.Toggle(key: .showBatteryIndicator) {
-                    Text("Show battery indicator")
-                }
-                Defaults.Toggle(key: .showPowerStatusNotifications) {
-                    Text("Show power status notifications")
-                }
-            } header: {
-                Text("General")
-            }
-            Section {
-                Defaults.Toggle(key: .showBatteryPercentage) {
-                    Text("Show battery percentage")
-                }
-                Defaults.Toggle(key: .showPowerStatusIcons) {
-                    Text("Show power status icons")
-                }
-            } header: {
-                Text("Battery Information")
-            }
-        }
-        .accentColor(.effectiveAccent)
-        .navigationTitle("Battery")
     }
 }

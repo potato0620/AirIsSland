@@ -38,7 +38,6 @@ extension Defaults.Keys {
     static let hideFromScreenRecording = Key<Bool>("hideFromScreenRecording", default: false)
     
     // MARK: Appearance
-    static let settingsIconInNotch = Key<Bool>("settingsIconInNotch", default: true)
     static let lightingEffect = Key<Bool>("lightingEffect", default: true)
     static let enableShadow = Key<Bool>("enableShadow", default: true)
     static let cornerRadiusScaling = Key<Bool>("cornerRadiusScaling", default: true)
@@ -55,17 +54,12 @@ extension Defaults.Keys {
     
     // MARK: Media playback
     static let musicLiveActivityEnabled = Key<Bool>("musicLiveActivityEnabled", default: true)
-    static let coloredSpectrogram = Key<Bool>("coloredSpectrogram", default: true)
     static let enableSneakPeek = Key<Bool>("enableSneakPeek", default: false)
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)
-    static let showBatteryIndicator = Key<Bool>("showBatteryIndicator", default: true)
-    static let showBatteryPercentage = Key<Bool>("showBatteryPercentage", default: true)
-    static let showPowerStatusIcons = Key<Bool>("showPowerStatusIcons", default: true)
 
     // MARK: HUD
-    static let showHUDPercentage = Key<Bool>("showHUDPercentage", default: true)
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
     
     // MARK: Fullscreen Media Detection

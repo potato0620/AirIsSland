@@ -7,20 +7,8 @@ struct PresentationSettings: View {
     var body: some View {
         Form {
             DisplayInteractionSections()
-            Section("Appearance") {
-                Defaults.Toggle(key: .coloredSpectrogram) {
-                    Text("Tint music with album colors")
-                }
-                Defaults.Toggle(key: .settingsIconInNotch) {
-                    Text("Show settings icon in notch")
-                }
-                Defaults.Toggle(key: .showHUDPercentage) {
-                    Text("Show volume and brightness percentage")
-                }
-            }
             Shortcuts()
         }
-        .navigationTitle("Display and Interaction")
     }
 }
 

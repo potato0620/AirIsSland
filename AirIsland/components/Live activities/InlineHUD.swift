@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Defaults
 
 struct InlineHUD: View {
     @EnvironmentObject var vm: IslandViewModel
@@ -96,7 +95,7 @@ struct InlineHUD: View {
                                 .lineLimit(1)
                                 .allowsTightening(true)
                                 .multilineTextAlignment(.trailing)
-                        } else if Defaults[.showHUDPercentage] {
+                        } else {
                             Text("\(Int(value * 100))%")
                                 .font(.caption)
                                 .fontWeight(.medium)

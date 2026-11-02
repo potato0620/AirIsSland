@@ -29,6 +29,5 @@ struct GeneralSettings: View {
                 }
             }
         }
-        .navigationTitle("General")
     }
 }

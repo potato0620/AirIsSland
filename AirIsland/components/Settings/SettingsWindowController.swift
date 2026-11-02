@@ -35,9 +35,14 @@ class SettingsWindowController: NSWindowController {
         
         window.minSize = NSSize(width: 760, height: 600)
         window.title = String(localized: "AirIsland Settings")
-        window.titlebarAppearsTransparent = false
-        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.toolbarStyle = .unified
+        // Reserve the native titlebar height for traffic lights; navigation belongs
+        // to the detail view, so it cannot extend into or collapse the fixed sidebar.
+        let toolbar = NSToolbar(identifier: "AirIslandSettingsTitlebar")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
         window.isMovableByWindowBackground = true
         
         // Make it behave like a regular app window with proper Spaces support

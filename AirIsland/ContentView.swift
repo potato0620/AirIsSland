@@ -122,20 +122,6 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .onChange(of: vm.isBatteryPopoverActive) {
-                        if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open {
-                            hoverTask?.cancel()
-                            hoverTask = Task {
-                                try? await Task.sleep(for: .milliseconds(100))
-                                guard !Task.isCancelled else { return }
-                                await MainActor.run {
-                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open {
-                                        self.vm.close()
-                                    }
-                                }
-                            }
-                        }
-                    }
                     .sensoryFeedback(.alignment, trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
@@ -192,13 +178,12 @@ struct ContentView: View {
                                 .frame(width: vm.closedNotchSize.width + 10)
 
                             HStack {
-                                IslandBatteryView(
-                                    batteryWidth: 30,
+                                BatteryView(
+                                    levelBattery: batteryModel.levelBattery,
+                                    isPluggedIn: batteryModel.isPluggedIn,
                                     isCharging: batteryModel.isCharging,
                                     isInLowPowerMode: batteryModel.isInLowPowerMode,
-                                    isPluggedIn: batteryModel.isPluggedIn,
-                                    levelBattery: batteryModel.levelBattery,
-                                    isForNotification: true
+                                    batteryWidth: 30
                                 )
                             }
                             .frame(width: 76, alignment: .trailing)
@@ -211,7 +196,8 @@ struct ContentView: View {
                           MusicLiveActivity()
                               .frame(alignment: .center)
                        } else if vm.notchState == .open {
-                           IslandHeader()
+                           // Keep the camera clearance; expanded content has no system feedback.
+                           Color.clear
                                .frame(height: max(24, vm.effectiveClosedNotchHeight))
                                .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
                        } else {
@@ -253,8 +239,7 @@ struct ContentView: View {
                         {
                             MarqueeText(
                                 .constant(musicManager.songTitle),
-                                textColor: Defaults[.coloredSpectrogram]
-                                    ? Color(nsColor: musicManager.avgColor) : Color.gray,
+                                textColor: Color(nsColor: musicManager.avgColor),
                                 minDuration: 0.4,
                                 frameWidth: 100
                             )
@@ -264,9 +249,7 @@ struct ContentView: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .foregroundStyle(
-                                    Defaults[.coloredSpectrogram]
-                                        ? Color(nsColor: musicManager.avgColor)
-                                        : Color.gray
+                                    Color(nsColor: musicManager.avgColor)
                                 )
                         }
                     }
@@ -281,9 +264,7 @@ struct ContentView: View {
             HStack {
                     Rectangle()
                         .fill(
-                            Defaults[.coloredSpectrogram]
-                                ? Color(nsColor: musicManager.avgColor).gradient
-                                : Color.gray.gradient
+                            Color(nsColor: musicManager.avgColor).gradient
                         )
                         .frame(width: 50, alignment: .center)
                         .mask {
@@ -358,7 +339,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive {
+                    if self.vm.notchState == .open {
                         self.vm.close()
                     }
                 }
