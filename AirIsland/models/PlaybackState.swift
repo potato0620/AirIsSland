@@ -17,6 +17,8 @@ struct PlaybackState {
     var bundleIdentifier: String
     var sourceTrackIdentifier: String?
     var isPlaying: Bool = false
+    // A user-requested track change can temporarily report stopped playback.
+    var isChangingTrack: Bool = false
     var title: String = "I'm Handsome"
     var artist: String = "Me"
     var album: String = "Self Love"
@@ -36,6 +38,7 @@ extension PlaybackState: Equatable {
         return lhs.bundleIdentifier == rhs.bundleIdentifier
             && lhs.sourceTrackIdentifier == rhs.sourceTrackIdentifier
             && lhs.isPlaying == rhs.isPlaying
+            && lhs.isChangingTrack == rhs.isChangingTrack
             && lhs.title == rhs.title
             && lhs.artist == rhs.artist
             && lhs.album == rhs.album

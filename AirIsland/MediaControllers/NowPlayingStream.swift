@@ -132,10 +132,44 @@ struct NowPlayingPayload: Decodable {
 /// without changing playback in the source application.
 struct NowPlayingPlaybackSession {
     static let neteaseBundleIdentifier = "com.netease.163music"
+    static let trackChangeTimeout: TimeInterval = 8
     private var rawState = Self.emptyState()
     private(set) var state = Self.emptyState()
     private var pendingPause: PlaybackState?
     private(set) var pauseDeadline: Date?
+    private(set) var trackChangeDeadline: Date?
+    private var trackChangeOrigin: (bundle: String, title: String)?
+
+    /// This is command acknowledgement, not a claim that audio is playing.
+    /// Bound missing/failed responses and keep the source's actual playback rate.
+    mutating func beginTrackChange(now: Date = Date()) -> PlaybackState {
+        guard (state.isPlaying || state.isChangingTrack), !state.bundleIdentifier.isEmpty else { return state }
+        trackChangeOrigin = (state.bundleIdentifier, state.title)
+        trackChangeDeadline = now.addingTimeInterval(Self.trackChangeTimeout)
+        state.isChangingTrack = true
+        return state
+    }
+
+    mutating func cancelTrackChange() -> PlaybackState {
+        trackChangeOrigin = nil
+        trackChangeDeadline = nil
+        state.isChangingTrack = false
+        return state
+    }
+
+    private mutating func refreshTrackChange(now: Date) -> PlaybackState {
+        if let origin = trackChangeOrigin, let deadline = trackChangeDeadline {
+            // NetEase emits temporary item IDs and playing=true at rate=0
+            // before the destination metadata is ready. Neither acknowledges a load.
+            let destinationIsAdvancing = state.title != origin.title
+                && rawState.isPlaying && rawState.playbackRate > 0
+            if now >= deadline || state.bundleIdentifier != origin.bundle || destinationIsAdvancing {
+                _ = cancelTrackChange()
+            }
+        }
+        state.isChangingTrack = trackChangeDeadline != nil
+        return state
+    }
 
     mutating func receive(_ update: NowPlayingUpdate, neteaseIsRunning: Bool, now: Date = Date()) -> PlaybackState {
         rawState = update.applying(to: rawState, now: now)
@@ -155,7 +189,7 @@ struct NowPlayingPlaybackSession {
                 state.playbackRate = 0
                 state.lastUpdated = now
             }
-            return state
+            return refreshTrackChange(now: now)
         }
 
         if next.bundleIdentifier == Self.neteaseBundleIdentifier {
@@ -166,29 +200,35 @@ struct NowPlayingPlaybackSession {
                 // anchor; later position/seek updates for this track remain valid.
                 next.currentTime = 0
                 next.lastUpdated = now
+                // A title-only diff still carries the old raw cover. Wait for
+                // artwork explicitly supplied for this destination instead.
+                if update.payload.artworkData == nil { next.artwork = nil }
             }
-            // NetEase sometimes changes only `playing` after a snapshot with
-            // playbackRate=0. A playing track needs a progressing time anchor.
-            if next.isPlaying, next.playbackRate <= 0 {
-                next.playbackRate = 1
-            }
+            // NetEase regenerates Now Playing item UUIDs during one load.
+            // Preserve the established identity while its track metadata agrees.
+            if sameTrack(next, state) { next.sourceTrackIdentifier = state.sourceTrackIdentifier }
             if sameTrack(next, state), next.artwork == nil,
                !update.payload.clearedFields.contains(.artworkData) {
                 next.artwork = state.artwork
             }
             rawState = next
+            // Keep the raw rate for load acknowledgement. Outside a requested
+            // load, retain the existing playing-only resume compatibility.
+            if next.isPlaying, next.playbackRate <= 0, trackChangeDeadline == nil {
+                next.playbackRate = 1
+            }
 
             if update.diff == true, !next.isPlaying,
                state.isPlaying, sameTrack(next, state) {
                 pendingPause = next
                 if pauseDeadline == nil { pauseDeadline = now.addingTimeInterval(0.3) }
-                return state
+                return refreshTrackChange(now: now)
             }
         }
 
         cancelPendingPause()
         state = next
-        return state
+        return refreshTrackChange(now: now)
     }
 
     mutating func confirmPendingPause(now: Date = Date()) -> PlaybackState {
@@ -196,7 +236,7 @@ struct NowPlayingPlaybackSession {
             state = pause
             cancelPendingPause()
         }
-        return state
+        return refreshTrackChange(now: now)
     }
 
     mutating func sourceDidTerminate(bundleIdentifier: String) -> PlaybackState {
@@ -204,6 +244,7 @@ struct NowPlayingPlaybackSession {
             rawState = Self.emptyState()
             state = rawState
             cancelPendingPause()
+            _ = cancelTrackChange()
         }
         return state
     }

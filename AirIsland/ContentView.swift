@@ -82,9 +82,9 @@ struct ContentView: View {
                         expandedHeight: openNotchSize.height,
                         expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
                         scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
-                        isPlaying: musicManager.isPlaying, showsArtwork: showsArtwork,
+                        isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork,
                         showsAmbience: vm.notchState == .open
-                            && musicManager.isPlaying && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
+                            && musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
                     ))
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
@@ -428,7 +428,7 @@ private struct IslandExpansionSurface: AnimatableModifier {
     let expandedLeadingInset: CGFloat
     let scalesCorners: Bool
     let artwork: NSImage
-    let isPlaying: Bool
+    let isArtworkPaused: Bool
     let showsArtwork: Bool
     let showsAmbience: Bool
 
@@ -446,7 +446,7 @@ private struct IslandExpansionSurface: AnimatableModifier {
             .overlay {
                 AlbumArtPresentation(vm: vm, expansion: expansion, closedHeight: closedHeight,
                                      expandedLeadingInset: expandedLeadingInset,
-                                     scalesCorners: scalesCorners, isPlaying: isPlaying)
+                                     scalesCorners: scalesCorners, isArtworkPaused: isArtworkPaused)
                     .opacity(showsArtwork ? 1 : 0)
                     .allowsHitTesting(vm.notchState == .open && showsArtwork)
                     .accessibilityHidden(!showsArtwork)

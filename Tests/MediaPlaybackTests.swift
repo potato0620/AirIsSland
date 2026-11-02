@@ -203,6 +203,131 @@ final class MediaPlaybackTests: XCTestCase {
         return try JSONDecoder().decode(NowPlayingUpdate.self, from: JSONSerialization.data(withJSONObject: value))
     }
 
+    func testRequestedTrackLoadDoesNotBecomeVisualPauseOrFakePlayback() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        XCTAssertTrue(session.beginTrackChange(now: start).isChangingTrack)
+        let loading = session.receive(try neteaseTrack("Next", playing: false, rate: 0), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        XCTAssertFalse(loading.isPlaying)
+        XCTAssertEqual(loading.playbackRate, 0)
+        XCTAssertTrue(loading.isChangingTrack)
+        XCTAssertTrue(session.confirmPendingPause(now: start.addingTimeInterval(6)).isChangingTrack)
+        let resumed = session.receive(try neteaseTrack("Next"), neteaseIsRunning: true, now: start.addingTimeInterval(7))
+        XCTAssertTrue(resumed.isPlaying)
+        XCTAssertFalse(resumed.isChangingTrack)
+        XCTAssertNil(session.trackChangeDeadline)
+    }
+
+    func testNetEaseObservedLoadSequenceWaitsThroughTemporaryIDsAndZeroRatePlaying() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        _ = session.beginTrackChange(now: start)
+        let packets = [
+            #"{"diff":true,"payload":{"playing":false}}"#,
+            #"{"diff":true,"payload":{"playbackRate":0,"elapsedTime":130,"contentItemIdentifier":"temporary-old"}}"#,
+            #"{"diff":true,"payload":{"playing":true}}"#,
+            #"{"diff":false,"payload":{"bundleIdentifier":"com.netease.163music","title":"Next","artist":"Artist","album":"Album","playing":true,"playbackRate":0,"contentItemIdentifier":"destination"}}"#,
+            #"{"diff":true,"payload":{"artworkData":"BAUG"}}"#,
+            #"{"diff":true,"payload":{"playing":false}}"#,
+            #"{"diff":true,"payload":{"playing":true}}"#,
+        ]
+        for (index, packet) in packets.enumerated() {
+            let state = session.receive(try update(packet), neteaseIsRunning: true,
+                                        now: start.addingTimeInterval(Double(index + 1) * 0.1))
+            XCTAssertTrue(state.isChangingTrack, "Load ended prematurely at packet \(index)")
+            if index >= 2 { XCTAssertEqual(state.playbackRate, 0, "Loading must not advance the timeline") }
+        }
+        let ready = session.receive(try update(#"{"diff":true,"payload":{"playbackRate":1,"elapsedTime":0.18,"contentItemIdentifier":"temporary-progress"}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        XCTAssertFalse(ready.isChangingTrack)
+        XCTAssertTrue(ready.isPlaying)
+        XCTAssertEqual(ready.sourceTrackIdentifier, "destination")
+        XCTAssertEqual(ready.artwork, Data([4, 5, 6]))
+    }
+
+    func testTitleOnlySwitchDoesNotReusePreviousTracksArtwork() throws {
+        var session = NowPlayingPlaybackSession()
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true)
+        _ = session.beginTrackChange()
+        let loading = session.receive(try update(#"{"diff":true,"payload":{"title":"Next","playbackRate":0}}"#), neteaseIsRunning: true)
+        XCTAssertNil(loading.artwork)
+        XCTAssertTrue(loading.isChangingTrack)
+        let covered = session.receive(try update(#"{"diff":true,"payload":{"artworkData":"BAUG"}}"#), neteaseIsRunning: true)
+        XCTAssertEqual(covered.artwork, Data([4, 5, 6]))
+        XCTAssertTrue(covered.isChangingTrack)
+    }
+
+    func testTrackChangeSurvivesTransientOldTrackPauseAndProgress() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        _ = session.beginTrackChange(now: start)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(0.1))
+        let stopped = session.confirmPendingPause(now: start.addingTimeInterval(0.5))
+        XCTAssertFalse(stopped.isPlaying)
+        XCTAssertTrue(stopped.isChangingTrack)
+        let oldProgress = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        XCTAssertTrue(oldProgress.isChangingTrack)
+        let next = session.receive(try neteaseTrack("Next"), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        XCTAssertFalse(next.isChangingTrack)
+    }
+
+    func testFailedTrackChangeExpiresWithoutAnotherProviderEvent() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        _ = session.beginTrackChange(now: start)
+        _ = session.receive(try neteaseTrack("Unavailable", playing: false, rate: 0), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        let expired = session.confirmPendingPause(now: start.addingTimeInterval(8))
+        XCTAssertFalse(expired.isChangingTrack)
+        XCTAssertFalse(expired.isPlaying)
+        XCTAssertNil(session.trackChangeDeadline)
+    }
+
+    func testManualPauseCancelsTrackChangeAndPausedSkipStaysPaused() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        _ = session.beginTrackChange(now: start)
+        XCTAssertFalse(session.cancelTrackChange().isChangingTrack)
+        let paused = session.receive(try neteaseTrack(playing: false, rate: 0), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        XCTAssertFalse(paused.isPlaying)
+        XCTAssertFalse(paused.isChangingTrack)
+        XCTAssertFalse(session.beginTrackChange(now: start.addingTimeInterval(2)).isChangingTrack)
+    }
+
+    func testRapidTrackRequestsReplaceDeadlineAndOldConfirmationCannotEndLatest() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true, now: start)
+        _ = session.beginTrackChange(now: start)
+        _ = session.receive(try neteaseTrack("Slow", playing: false, rate: 0), neteaseIsRunning: true, now: start.addingTimeInterval(1))
+        _ = session.beginTrackChange(now: start.addingTimeInterval(6))
+        XCTAssertTrue(session.confirmPendingPause(now: start.addingTimeInterval(8)).isChangingTrack)
+        XCTAssertFalse(session.confirmPendingPause(now: start.addingTimeInterval(14)).isChangingTrack)
+    }
+
+    func testTrackChangeEndsWhenPlayerTerminatesOrSourceChanges() throws {
+        var session = NowPlayingPlaybackSession()
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true)
+        _ = session.beginTrackChange()
+        XCTAssertFalse(session.sourceDidTerminate(bundleIdentifier: "com.netease.163music").isChangingTrack)
+        XCTAssertNil(session.trackChangeDeadline)
+        _ = session.receive(try neteaseTrack(), neteaseIsRunning: true)
+        _ = session.beginTrackChange()
+        let other = session.receive(try update(#"{"diff":false,"payload":{"bundleIdentifier":"com.spotify.client","title":"Other","playing":false}}"#), neteaseIsRunning: true)
+        XCTAssertFalse(other.isChangingTrack)
+        XCTAssertNil(session.trackChangeDeadline)
+    }
+
+    func testTrackChangeStateIsPublishedEvenIfPlaybackFieldsAreUnchanged() {
+        let original = PlaybackState(bundleIdentifier: "player")
+        var loading = original
+        loading.isChangingTrack = true
+        XCTAssertNotEqual(original, loading)
+    }
+
     func testNetEaseRealPauseThenEmptySequencePreservesPlayingTrack() throws {
         var session = NowPlayingPlaybackSession()
         let start = Date(timeIntervalSince1970: 1000)

@@ -36,7 +36,7 @@ struct AlbumArtPresentation: View {
     let closedHeight: CGFloat
     let expandedLeadingInset: CGFloat
     let scalesCorners: Bool
-    let isPlaying: Bool
+    let isArtworkPaused: Bool
 
     var body: some View {
         let headerHeight = max(24, closedHeight)
@@ -47,7 +47,7 @@ struct AlbumArtPresentation: View {
         let top = interpolate(6, headerHeight + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding)
         let closedRadius = MusicPlayerImageSizes.cornerRadiusInset.closed
         let openedRadius = scalesCorners ? MusicPlayerImageSizes.cornerRadiusInset.opened : closedRadius
-        let playbackScale = isPlaying ? 1 : interpolate(1, 0.85)
+        let playbackScale = isArtworkPaused ? interpolate(1, 0.85) : 1
         let badgeProgress = min(1, max(0, expansion))
         let badgeSide = 30 * badgeProgress * playbackScale
         let badgeInset = 5 * badgeProgress * playbackScale
@@ -102,27 +102,18 @@ struct AlbumArtView: View {
             musicManager.openMusicApp()
         } label: {
             albumArtImage
-                .overlay { albumArtDarkOverlay }
         }
         .buttonStyle(PlainButtonStyle())
         .scaleEffect(playbackScale)
     }
-
-    private var albumArtDarkOverlay: some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .aspectRatio(1, contentMode: .fit)
-            .foregroundColor(Color.black)
-            .opacity(vm.notchState == .open && !musicManager.isPlaying ? 0.8 : 0)
-            .allowsHitTesting(false)
-    }
-                
 
     private var albumArtImage: some View {
         SpringAlbumArtwork(
             image: musicManager.albumArt,
             trackIdentifier: musicManager.albumArtTrackIdentifier,
             direction: musicManager.albumArtFlipDirection,
-            cornerRadius: cornerRadius
+            cornerRadius: cornerRadius,
+            dimming: vm.notchState == .open && !musicManager.isPlaybackActive ? 0.8 : 0
         )
     }
 
@@ -135,6 +126,7 @@ struct SpringAlbumArtwork: View {
     let trackIdentifier: UUID
     let direction: AlbumArtFlipDirection
     let cornerRadius: CGFloat
+    let dimming: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var frontImage: NSImage
     @State private var backImage: NSImage
@@ -142,11 +134,12 @@ struct SpringAlbumArtwork: View {
     @State private var angle: Double = 0
     @State private var animationID = UUID()
 
-    init(image: NSImage, trackIdentifier: UUID, direction: AlbumArtFlipDirection, cornerRadius: CGFloat) {
+    init(image: NSImage, trackIdentifier: UUID, direction: AlbumArtFlipDirection, cornerRadius: CGFloat, dimming: Double) {
         self.image = image
         self.trackIdentifier = trackIdentifier
         self.direction = direction
         self.cornerRadius = cornerRadius
+        self.dimming = dimming
         _frontImage = State(initialValue: image)
         _backImage = State(initialValue: image)
         _transition = State(initialValue: AlbumArtworkTransition(.init(
@@ -174,6 +167,11 @@ struct SpringAlbumArtwork: View {
         Image(nsImage: image)
             .resizable()
             .aspectRatio(1, contentMode: .fit)
+            // Attenuate the image itself over black. A translucent black
+            // overlay leaves brighter image samples at antialiased edges.
+            .opacity(1 - dimming)
+            .background(Color.black)
+            .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 
@@ -324,7 +322,7 @@ struct MusicControlsView: View {
                 musicManager.previousTrack()
             }
             .help("Previous")
-            HoverButton(icon: musicManager.isPlaying ? "pause.fill" : "play.fill", scale: .large) {
+            HoverButton(icon: musicManager.isPlaybackActive ? "pause.fill" : "play.fill", scale: .large) {
                 musicManager.togglePlay()
             }
             .help("Play/Pause")

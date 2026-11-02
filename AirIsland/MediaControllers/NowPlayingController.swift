@@ -66,7 +66,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     private var pipeHandler: JSONLinesPipeHandler?
     private var streamTask: Task<Void, Never>?
     private var restartTask: Task<Void, Never>?
-    private var pendingPauseTask: Task<Void, Never>?
+    private var playbackConfirmationTask: Task<Void, Never>?
     private var playbackSession = NowPlayingPlaybackSession()
     private var terminationObserver: AnyCancellable?
     private var metadataTask: Task<Void, Never>?
@@ -111,6 +111,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.publish(self.playbackSession.sourceDidTerminate(bundleIdentifier: bundleIdentifier))
+                    self.schedulePlaybackConfirmation()
                 }
             }
         Task { await setupNowPlayingObserver() }
@@ -119,7 +120,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     deinit {
         streamTask?.cancel()
         restartTask?.cancel()
-        pendingPauseTask?.cancel()
+        playbackConfirmationTask?.cancel()
         metadataTask?.cancel()
         
         if let pipeHandler = self.pipeHandler {
@@ -138,23 +139,30 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     }
 
     // MARK: - Protocol Implementation
-    func play() async {
+    @MainActor func play() async {
+        cancelTrackChange()
         MRMediaRemoteSendCommandFunction(0, nil)
     }
 
-    func pause() async {
+    @MainActor func pause() async {
+        cancelTrackChange()
         MRMediaRemoteSendCommandFunction(1, nil)
     }
 
-    func togglePlay() async {
+    @MainActor func togglePlay() async {
+        cancelTrackChange()
         MRMediaRemoteSendCommandFunction(2, nil)
     }
 
-    func nextTrack() async {
+    @MainActor func nextTrack() async {
+        publish(playbackSession.beginTrackChange())
+        schedulePlaybackConfirmation()
         MRMediaRemoteSendCommandFunction(4, nil)
     }
 
-    func previousTrack() async {
+    @MainActor func previousTrack() async {
+        publish(playbackSession.beginTrackChange())
+        schedulePlaybackConfirmation()
         MRMediaRemoteSendCommandFunction(5, nil)
     }
 
@@ -260,15 +268,27 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         ).isEmpty
         publish(playbackSession.receive(update, neteaseIsRunning: neteaseIsRunning, now: now))
         reconcileNetEaseMetadata()
-        pendingPauseTask?.cancel()
-        pendingPauseTask = nil
-        if let deadline = playbackSession.pauseDeadline {
-            pendingPauseTask = Task { @MainActor [weak self] in
+        schedulePlaybackConfirmation()
+    }
+
+    @MainActor
+    private func cancelTrackChange() {
+        publish(playbackSession.cancelTrackChange())
+        schedulePlaybackConfirmation()
+    }
+
+    @MainActor
+    private func schedulePlaybackConfirmation() {
+        playbackConfirmationTask?.cancel()
+        playbackConfirmationTask = nil
+        if let deadline = [playbackSession.pauseDeadline, playbackSession.trackChangeDeadline].compactMap({ $0 }).min() {
+            playbackConfirmationTask = Task { @MainActor [weak self] in
                 do {
                     try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
                     try Task.checkCancellation()
                     guard let self else { return }
                     self.publish(self.playbackSession.confirmPendingPause())
+                    self.schedulePlaybackConfirmation()
                 } catch { }
             }
         }

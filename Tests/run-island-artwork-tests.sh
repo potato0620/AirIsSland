@@ -16,6 +16,12 @@ for folder in ['AirIsland', 'AirIsland.xcodeproj', 'AirIslandHelper', 'mediaremo
 p = check / 'AirIsland/managers/MusicManager.swift'
 s = p.read_text(); start = s.index('    init() {'); end = s.index('\n    public func destroy()', start)
 p.write_text(s[:start] + '    init() {}\n' + s[end:])
+# Let the fixture publish real track changes without starting a media provider.
+s = p.read_text()
+for field in ['albumArtTrackIdentifier', 'albumArtFlipDirection', 'isChangingTrack']:
+    s = s.replace('@Published private(set) var ' + field, '@Published var ' + field)
+s = s.replace('private func updateFromPlaybackState(', 'func updateFromPlaybackState(')
+p.write_text(s)
 p = check / 'AirIsland/IslandWindowCoordinator.swift'
 s = p.read_text(); start = s.index('    private init() {')
 p.write_text(s[:start] + '    private init() {}\n}\n')

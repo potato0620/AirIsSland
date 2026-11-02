@@ -31,6 +31,8 @@ class MusicManager: ObservableObject {
     @Published var albumArt: NSImage = defaultImage
     @Published private(set) var albumArtFlipDirection: AlbumArtFlipDirection = .next
     @Published var isPlaying = false
+    @Published private(set) var isChangingTrack = false
+    var isPlaybackActive: Bool { isPlaying || isChangingTrack }
     @Published var album: String = ""
     @Published var isPlayerIdle: Bool = true
     @Published var avgColor: NSColor = .white
@@ -49,6 +51,8 @@ class MusicManager: ObservableObject {
 
     private var artworkData: Data? = nil
     private var artworkTrack = AlbumArtworkTrackTracker()
+    private var artworkAwaitingPlayback: UUID?
+    private var pendingArtwork: (image: NSImage, trackIdentifier: UUID)?
 
     // Store last values at the time artwork was changed
     private var lastArtworkTitle: String = "I'm Handsome"
@@ -79,6 +83,8 @@ class MusicManager: ObservableObject {
 
     public func destroy() {
         debounceIdleTask?.cancel()
+        pendingArtwork = nil
+        artworkAwaitingPlayback = nil
         controllerCancellables.removeAll()
 
         ActivityCoordinator.shared.setMusicActive(false)
@@ -89,23 +95,40 @@ class MusicManager: ObservableObject {
     // MARK: - Update Methods
     @MainActor
     private func updateFromPlaybackState(_ state: PlaybackState) {
+        let wasActive = isPlaying || isChangingTrack
+        self.isChangingTrack = state.isChangingTrack
         let trackIdentifier = artworkTrack.update(
             bundleIdentifier: state.bundleIdentifier,
             title: state.title,
             sourceTrackIdentifier: state.sourceTrackIdentifier
         )
+        if artworkAwaitingPlayback != trackIdentifier {
+            artworkAwaitingPlayback = nil
+            pendingArtwork = nil
+        }
+        if state.isChangingTrack {
+            artworkAwaitingPlayback = trackIdentifier
+        } else if state.isPlaying {
+            artworkAwaitingPlayback = nil
+            if let ready = pendingArtwork, ready.trackIdentifier == trackIdentifier {
+                pendingArtwork = nil
+                usingAppIconForArtwork = false
+                updateAlbumArt(newAlbumArt: ready.image, trackIdentifier: trackIdentifier)
+            }
+        }
         // Check for playback state changes (playing/paused)
         if state.isPlaying != self.isPlaying {
             NSLog("Playback state changed: \(state.isPlaying ? "Playing" : "Paused")")
             withAnimation(.smooth) {
                 self.isPlaying = state.isPlaying
-                self.updateIdleState(state: state.isPlaying)
             }
 
             if state.isPlaying && !state.title.isEmpty && !state.artist.isEmpty {
                 self.updateSneakPeek()
             }
         }
+        let isActive = state.isPlaying || state.isChangingTrack
+        if wasActive != isActive { updateIdleState(state: isActive) }
 
         // Check for changes in track metadata using last artwork change values
         let titleChanged = state.title != self.lastArtworkTitle
@@ -116,7 +139,7 @@ class MusicManager: ObservableObject {
             && state.sourceTrackIdentifier != self.lastArtworkSourceTrackIdentifier
         if titleChanged || bundleChanged || sourceTrackChanged {
             if let request = requestedArtworkFlip,
-               Date().timeIntervalSince(request.requestedAt) < 5 {
+               Date().timeIntervalSince(request.requestedAt) < NowPlayingPlaybackSession.trackChangeTimeout {
                 albumArtFlipDirection = request.direction
             } else {
                 albumArtFlipDirection = .next
@@ -128,11 +151,13 @@ class MusicManager: ObservableObject {
 
         // Check for artwork changes
         let artworkChanged = state.artwork != nil && state.artwork != self.artworkData
+        let artworkNeedsTrackBinding = state.artwork != nil && trackIdentifier != albumArtTrackIdentifier
+            && (titleChanged || bundleChanged || sourceTrackChanged)
         let hasContentChange = titleChanged || artistChanged || albumChanged || artworkChanged || bundleChanged || sourceTrackChanged
 
         // Handle artwork and visual transitions for changed content
         if hasContentChange {
-            if artworkChanged, let artwork = state.artwork {
+            if artworkChanged || artworkNeedsTrackBinding, let artwork = state.artwork {
                 self.updateArtwork(artwork, trackIdentifier: trackIdentifier)
             } else if state.artwork == nil,
                       bundleChanged || self.usingAppIconForArtwork || self.albumArt === defaultImage {
@@ -212,7 +237,7 @@ class MusicManager: ObservableObject {
             self.volume = state.volume
         }
         
-        ActivityCoordinator.shared.setMusicActive(state.isPlaying || !isPlayerIdle)
+        ActivityCoordinator.shared.setMusicActive(isActive || !isPlayerIdle)
         self.timestampDate = state.lastUpdated
     }
 
@@ -241,6 +266,10 @@ class MusicManager: ObservableObject {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.artworkData == artworkData,
                           self.artworkTrack.identifier == trackIdentifier else { return }
+                    if self.artworkAwaitingPlayback == trackIdentifier {
+                        self.pendingArtwork = (artworkImage, trackIdentifier)
+                        return
+                    }
                     self.usingAppIconForArtwork = false
                     self.updateAlbumArt(newAlbumArt: artworkImage, trackIdentifier: trackIdentifier)
                 }
@@ -317,7 +346,11 @@ class MusicManager: ObservableObject {
     
     func togglePlay() {
         Task {
-            await activeController?.togglePlay()
+            if isChangingTrack {
+                await activeController?.pause()
+            } else {
+                await activeController?.togglePlay()
+            }
         }
     }
 

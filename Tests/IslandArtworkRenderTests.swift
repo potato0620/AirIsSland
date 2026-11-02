@@ -51,8 +51,12 @@ enum IslandArtworkRenderProbe {
                     await verify(screen: screen, name: "screen\(index)-light\(lighting)", output: output)
                 }
             }
+            Defaults[.lightingEffect] = false
+            await verifyPausedArtwork(output: output)
+            await verifyPausedArtwork(output: output, changing: true)
             IslandArtworkRenderProbe.reduceMotion = true
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
+            await verifyArtworkReadiness()
             print("PASS: production ContentView, single artwork identity, opaque rounded cover, clear text slots and synchronized geometry")
             exit(0)
         }
@@ -66,6 +70,182 @@ enum IslandArtworkRenderProbe {
             rect.fill()
             return true
         }
+    }
+
+    @MainActor static func verifyArtworkReadiness() async {
+        let music = MusicManager.shared
+        func imageData(_ size: CGFloat) -> Data {
+            NSBitmapImageRep(data: artwork(size: size).tiffRepresentation!)!
+                .representation(using: .png, properties: [:])!
+        }
+        func settle() async { try? await Task.sleep(for: .seconds(0.25)) }
+        var state = PlaybackState(bundleIdentifier: "com.netease.163music", sourceTrackIdentifier: "loaded",
+                                  isPlaying: true, title: "Loaded", artist: "Artist", album: "Album")
+        state.artwork = imageData(200)
+        music.updateFromPlaybackState(state)
+        await settle()
+        let initial = music.albumArtTrackIdentifier
+        let initialImage = ObjectIdentifier(music.albumArt)
+
+        state.title = "Slow load"
+        state.sourceTrackIdentifier = "slow"
+        state.isPlaying = false
+        state.isChangingTrack = true
+        state.playbackRate = 0
+        state.artwork = imageData(400)
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier == initial && ObjectIdentifier(music.albumArt) == initialImage,
+                "Decoded cover flipped before the requested song was ready")
+        require(music.isPlaybackActive, "Loading incorrectly became a visual pause")
+        state.isPlaying = true // A provisional playing=true at rate=0 is still loading.
+        state.artwork = imageData(500)
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier == initial, "Provisional playback prematurely released the cover")
+        state.isChangingTrack = false
+        state.playbackRate = 1
+        music.updateFromPlaybackState(state)
+        await settle()
+        let loaded = music.albumArtTrackIdentifier
+        require(loaded != initial && music.albumArt.size.width == 500,
+                "Ready playback did not release the newest decoded cover")
+        state.artwork = imageData(600)
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier == loaded && music.albumArt.size.width == 600,
+                "Artwork refinement changed the loaded song's flip identity")
+
+        state.title = "Playback before cover"
+        state.sourceTrackIdentifier = "no-cover"
+        state.artwork = nil
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier == loaded, "Missing cover triggered an early flip")
+        state.artwork = imageData(300)
+        music.updateFromPlaybackState(state)
+        await settle()
+        let next = music.albumArtTrackIdentifier
+        require(next != loaded && music.albumArt.size.width == 300, "Late cover was not displayed after playback became ready")
+
+        state.title = "Failed load"
+        state.sourceTrackIdentifier = "failed"
+        state.isPlaying = false
+        state.isChangingTrack = true
+        state.playbackRate = 0
+        state.artwork = imageData(400)
+        music.updateFromPlaybackState(state)
+        await settle()
+        state.isChangingTrack = false
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier == next, "Failed load flipped to an unplayable destination")
+        state.isPlaying = true
+        state.playbackRate = 1
+        music.updateFromPlaybackState(state)
+        await settle()
+        require(music.albumArtTrackIdentifier != next && music.albumArt.size.width == 400,
+                "Resuming the failed load did not release its matching cover")
+        print("PASS: production MusicManager waits for playback and decoded artwork, preserves late/refined covers and handles failure/resume")
+    }
+
+    @MainActor static func verifyPausedArtwork(output: URL, changing: Bool = false) async {
+        let music = MusicManager.shared
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.open()
+        music.isPlaying = false
+        music.isChangingTrack = changing
+        let phase = changing ? "loading-flip" : "paused-flip"
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 210),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        var frames = 0
+        var widths: [Int] = []
+        var pausedReferenceGreen: Int?
+        func capture() {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let filename = "\(phase)-\(frames).png"
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(filename))
+            frames += 1
+            var left = rep.pixelsWide, right = -1
+            var top = rep.pixelsHigh, bottom = -1
+            var brightPixels = 0
+            var maximumGreen = 0
+            let rgba = rep.bitsPerSample == 8 && rep.samplesPerPixel == 4 && !rep.isPlanar
+                && (rep.bitmapFormat == [] || rep.bitmapFormat == .alphaNonpremultiplied)
+            let bytes = rep.bitmapData!
+            for y in 0..<rep.pixelsHigh {
+                for x in 0..<rep.pixelsWide / 2 {
+                    let red: Int, green: Int, blue: Int, alpha: Int
+                    if rgba {
+                        let offset = y * rep.bytesPerRow + x * 4
+                        red = Int(bytes[offset]); green = Int(bytes[offset + 1])
+                        blue = Int(bytes[offset + 2]); alpha = Int(bytes[offset + 3])
+                    } else {
+                        let pixel = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                        red = Int(pixel.redComponent * 255); green = Int(pixel.greenComponent * 255)
+                        blue = Int(pixel.blueComponent * 255); alpha = Int(pixel.alphaComponent * 255)
+                    }
+                    // Cyan identifies the synthetic cover; white labels and the red app badge do not match.
+                    if green - red > 1, blue - red > 1, alpha > 242 {
+                        if changing {
+                            if green > 153 { brightPixels += 1 }
+                        } else {
+                            require(green < 153,
+                                    "Undimmed paused cover escaped its shading in \(filename) at (\(x), \(y))")
+                        }
+                        maximumGreen = max(maximumGreen, green)
+                        left = min(left, x); right = max(right, x)
+                        top = min(top, y); bottom = max(bottom, y)
+                    }
+                }
+            }
+            if !changing, right >= left {
+                if pausedReferenceGreen == nil {
+                    let center = rep.colorAt(x: (left + right) / 2, y: (top + bottom) / 2)!.usingColorSpace(.deviceRGB)!
+                    pausedReferenceGreen = Int((center.greenComponent * 255).rounded())
+                }
+                require(maximumGreen <= pausedReferenceGreen! + 3,
+                        "Paused cover has a bright antialiased fringe in \(filename): edge \(maximumGreen), interior \(pausedReferenceGreen!)")
+            }
+            if changing { require(brightPixels > 20, "Loading cover incorrectly dimmed in \(filename)") }
+            if right >= left { widths.append(right - left + 1) }
+        }
+        try? await Task.sleep(for: .seconds(0.65))
+        capture()
+        let scale = CGFloat(host.bitmapImageRepForCachingDisplay(in: host.bounds)!.pixelsWide) / host.bounds.width
+        let expectedSide = MusicPlayerImageSizes.expandedSide(headerHeight: max(24, vm.effectiveClosedNotchHeight))
+            * (changing ? 1 : 0.85) * scale
+        require(abs(CGFloat(widths.last ?? 0) - expectedSide) < 3,
+                "Incorrect cover scale in \(phase): expected \(expectedSide), measured \(widths.last ?? 0)")
+        for direction in [AlbumArtFlipDirection.next, .previous] {
+            music.albumArtFlipDirection = direction
+            music.albumArtTrackIdentifier = UUID()
+            music.albumArt = artwork(size: 200)
+            for index in 0..<24 {
+                try? await Task.sleep(for: .seconds(0.016))
+                capture()
+                if index == 3 { music.albumArt = artwork(size: 400) }
+            }
+            try? await Task.sleep(for: .seconds(0.3))
+        }
+        if !changing {
+            require((widths.max() ?? 0) > (widths.min() ?? 0) + 20,
+                    "Paused regression did not capture the cover's actual flip deformation: \(widths)")
+        }
+        print("PASS: \(phase), \(frames) frames, correct shading/scale through next/previous track updates and artwork refinements")
+        window.orderOut(nil)
+        window.contentView = nil
+        vm.destroy()
+        music.isPlaying = true
+        music.isChangingTrack = false
     }
 
     @MainActor static func verify(screen: NSScreen, name: String, output: URL) async {
