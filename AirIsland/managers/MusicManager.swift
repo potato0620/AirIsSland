@@ -59,7 +59,7 @@ class MusicManager: ObservableObject {
     private var lastArtworkArtist: String = "Me"
     private var lastArtworkAlbum: String = "Self Love"
     private var lastArtworkBundleIdentifier: String? = nil
-    private var lastArtworkSourceTrackIdentifier: String?
+    private var lastAnnouncedTrackIdentifier: UUID?
     private var requestedArtworkFlip: (direction: AlbumArtFlipDirection, requestedAt: Date)?
 
     // MARK: - Initialization
@@ -97,11 +97,15 @@ class MusicManager: ObservableObject {
     private func updateFromPlaybackState(_ state: PlaybackState) {
         let wasActive = isPlaying || isChangingTrack
         self.isChangingTrack = state.isChangingTrack
+        let previousTrackIdentifier = artworkTrack.identifier
         let trackIdentifier = artworkTrack.update(
             bundleIdentifier: state.bundleIdentifier,
             title: state.title,
-            sourceTrackIdentifier: state.sourceTrackIdentifier
+            sourceTrackIdentifier: state.sourceTrackIdentifier,
+            artist: state.artist,
+            album: state.album
         )
+        let trackChanged = trackIdentifier != previousTrackIdentifier
         if artworkAwaitingPlayback != trackIdentifier {
             artworkAwaitingPlayback = nil
             pendingArtwork = nil
@@ -122,10 +126,6 @@ class MusicManager: ObservableObject {
             withAnimation(.smooth) {
                 self.isPlaying = state.isPlaying
             }
-
-            if state.isPlaying && !state.title.isEmpty && !state.artist.isEmpty {
-                self.updateSneakPeek()
-            }
         }
         let isActive = state.isPlaying || state.isChangingTrack
         if wasActive != isActive { updateIdleState(state: isActive) }
@@ -135,9 +135,7 @@ class MusicManager: ObservableObject {
         let artistChanged = state.artist != self.lastArtworkArtist
         let albumChanged = state.album != self.lastArtworkAlbum
         let bundleChanged = state.bundleIdentifier != self.lastArtworkBundleIdentifier
-        let sourceTrackChanged = state.sourceTrackIdentifier != nil
-            && state.sourceTrackIdentifier != self.lastArtworkSourceTrackIdentifier
-        if titleChanged || bundleChanged || sourceTrackChanged {
+        if trackChanged {
             if let request = requestedArtworkFlip,
                Date().timeIntervalSince(request.requestedAt) < NowPlayingPlaybackSession.trackChangeTimeout {
                 albumArtFlipDirection = request.direction
@@ -152,8 +150,7 @@ class MusicManager: ObservableObject {
         // Check for artwork changes
         let artworkChanged = state.artwork != nil && state.artwork != self.artworkData
         let artworkNeedsTrackBinding = state.artwork != nil && trackIdentifier != albumArtTrackIdentifier
-            && (titleChanged || bundleChanged || sourceTrackChanged)
-        let hasContentChange = titleChanged || artistChanged || albumChanged || artworkChanged || bundleChanged || sourceTrackChanged
+        let hasContentChange = titleChanged || artistChanged || albumChanged || artworkChanged || bundleChanged || artworkNeedsTrackBinding
 
         // Handle artwork and visual transitions for changed content
         if hasContentChange {
@@ -176,13 +173,15 @@ class MusicManager: ObservableObject {
             self.lastArtworkArtist = state.artist
             self.lastArtworkAlbum = state.album
             self.lastArtworkBundleIdentifier = state.bundleIdentifier
-            self.lastArtworkSourceTrackIdentifier = state.sourceTrackIdentifier
+        }
 
-            // Only update sneak peek if there's actual content and something changed
-            if !state.title.isEmpty && !state.artist.isEmpty && state.isPlaying {
-                self.updateSneakPeek()
-            }
-
+        // Announce each playable song once. Progress, regenerated item IDs,
+        // cover upgrades and seek-related pause/resume are not track changes.
+        if state.isPlaying, !state.isChangingTrack,
+           !state.title.isEmpty, !state.artist.isEmpty,
+           lastAnnouncedTrackIdentifier != trackIdentifier {
+            lastAnnouncedTrackIdentifier = trackIdentifier
+            self.updateSneakPeek()
         }
 
         let timeChanged = state.currentTime != self.elapsedTime

@@ -3,11 +3,7 @@ import SwiftUI
 
 @MainActor private final class TransitionState: ObservableObject {
     @Published var expanded = true
-    @Published var artwork = NSImage(size: NSSize(width: 220, height: 220), flipped: false) { rect in
-        NSColor.white.setFill()
-        rect.fill()
-        return true
-    }
+    @Published var color: NSColor = .white
 }
 
 /// A geometry fixture around the production backdrop, shape and motion policy.
@@ -28,7 +24,7 @@ private struct TransitionFixture: View {
                     .offset(x: state.expanded ? 36 : 20, y: state.expanded ? 50 : 6)
             }
             .background {
-                IslandBackdrop(artwork: state.artwork, topClearance: closedHeight, showsArtwork: state.expanded)
+                IslandBackdrop(color: state.color, topClearance: closedHeight, showsArtwork: state.expanded)
             }
             .clipShape(NotchShape(topCornerRadius: state.expanded ? 19 : 6,
                                   bottomCornerRadius: state.expanded ? 24 : 14))
@@ -45,6 +41,7 @@ private struct TransitionFixture: View {
         Task { @MainActor in
             let output = CommandLine.arguments.count > 1 ? URL(fileURLWithPath: CommandLine.arguments[1]) : nil
             if let output { try! FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+            await verifyPhysicalClearance()
             for height: CGFloat in [25, 32, 38] {
                 await verify(closedHeight: height, reduceMotion: false, output: output)
             }
@@ -53,6 +50,48 @@ private struct TransitionFixture: View {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor private static func verifyPhysicalClearance() async {
+        let state = TransitionState()
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil }
+        for physicalHeight: CGFloat in [0, 24, 32, 45] {
+            let host = NSHostingView(rootView: IslandBackdrop(color: state.color,
+                topClearance: physicalHeight, showsArtwork: true).frame(width: 480, height: 190))
+            window.contentView = host
+            window.orderBack(nil)
+            try? await Task.sleep(for: .seconds(0.6))
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / 480
+            func brightness(_ y: CGFloat, x: CGFloat = 90) -> CGFloat {
+                let pixel = rep.colorAt(x: Int(x * scale), y: Int(y * scale))!.usingColorSpace(.deviceRGB)!
+                return max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+            }
+            precondition(brightness(185, x: 20) > 0.25
+                         && abs(brightness(185, x: 20) - brightness(185, x: 460)) < 0.005,
+                         "Music background does not fill the bottom across its full width")
+            for y in stride(from: physicalHeight + 2, to: 185, by: 4) {
+                precondition(brightness(y + 1) >= brightness(y) - 0.005,
+                             "Music background is not a linear fade upward from the bottom")
+            }
+            if physicalHeight > 0 {
+                for y in stride(from: CGFloat(0), to: physicalHeight, by: 1) {
+                    precondition(brightness(y) < 0.005, "Light entered the physical notch region")
+                }
+            }
+            precondition(brightness(physicalHeight + 24) > 0.03,
+                         "Extra black clearance still suppresses light below the physical notch")
+            for y in stride(from: physicalHeight, to: physicalHeight + 24, by: 1) {
+                precondition(abs(brightness(y + 1) - brightness(y)) < 0.06,
+                             "Notch-to-ambience boundary is abrupt")
+            }
+            print("PASS: physical clearance \(physicalHeight), pure black only above edge, smooth light below")
+        }
     }
 
     @MainActor private static func verify(closedHeight: CGFloat, reduceMotion: Bool, output: URL?) async {
@@ -129,9 +168,7 @@ private struct TransitionFixture: View {
                     _ = sample("reverse")
                 }
                 // Updating background content cannot replace the active geometry transaction.
-                state.artwork = NSImage(size: NSSize(width: 220, height: 220), flipped: false) { rect in
-                    NSColor.blue.setFill(); rect.fill(); return true
-                }
+                state.color = .blue
             }
             state.expanded = false
             for _ in 0..<18 {

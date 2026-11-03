@@ -581,15 +581,64 @@ final class MediaPlaybackTests: XCTestCase {
         let identified = tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "42")
         XCTAssertEqual(initial, identified)
         XCTAssertEqual(identified, tracker.update(bundleIdentifier: "player", title: " Song ", sourceTrackIdentifier: nil))
-        XCTAssertNotEqual(identified, tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "43"))
+        XCTAssertEqual(identified, tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "43"))
     }
 
     func testSourceIdentifierArrivingBeforeTitleKeepsOneSongTransition() {
         var tracker = AlbumArtworkTrackTracker()
         let old = tracker.update(bundleIdentifier: "player", title: "Old title", sourceTrackIdentifier: "1")
-        let next = tracker.update(bundleIdentifier: "player", title: "Old title", sourceTrackIdentifier: "2")
+        XCTAssertEqual(old, tracker.update(bundleIdentifier: "player", title: "Old title", sourceTrackIdentifier: "2"))
+        let next = tracker.update(bundleIdentifier: "player", title: "New title", sourceTrackIdentifier: "2")
         XCTAssertNotEqual(old, next)
         XCTAssertEqual(next, tracker.update(bundleIdentifier: "player", title: "New title", sourceTrackIdentifier: "2"))
+    }
+
+    func testSeekUpdatesWithRegeneratedItemIDsKeepArtworkIdentityForEveryPlayer() throws {
+        for bundle in ["com.tencent.QQMusicMac", "com.netease.163music", "com.apple.Music", "com.spotify.client", "other-player"] {
+            var session = NowPlayingPlaybackSession()
+            var tracker = AlbumArtworkTrackTracker()
+            func receive(_ payload: [String: Any], diff: Bool) throws -> (PlaybackState, UUID) {
+                let data = try JSONSerialization.data(withJSONObject: ["diff": diff, "payload": payload])
+                let state = session.receive(try JSONDecoder().decode(NowPlayingUpdate.self, from: data), neteaseIsRunning: true)
+                let identity = tracker.update(bundleIdentifier: state.bundleIdentifier, title: state.title,
+                                              sourceTrackIdentifier: state.sourceTrackIdentifier,
+                                              artist: state.artist, album: state.album)
+                return (state, identity)
+            }
+            let (initial, identity) = try receive(["bundleIdentifier": bundle, "title": "Song", "artist": "Artist",
+                "album": "Album", "contentItemIdentifier": "original", "playing": true, "duration": 306,
+                "elapsedTime": 12, "artworkData": "AQID"], diff: false)
+            var transition = AlbumArtworkTransition<Data?>(.init(artwork: initial.artwork, trackIdentifier: identity, direction: .next))
+            for (index, position) in [109.0, 3, 250, 0].enumerated() {
+                let (seek, seekIdentity) = try receive(["elapsedTime": position, "contentItemIdentifier": "seek-\(index)",
+                                                       "artworkData": "BAUG"], diff: true)
+                XCTAssertEqual(seek.currentTime, position, bundle)
+                XCTAssertEqual(seekIdentity, identity, bundle)
+                guard case .replace? = transition.receive(.init(artwork: seek.artwork, trackIdentifier: seekIdentity, direction: .next)) else {
+                    return XCTFail("Seeking must replace the current face without flipping: \(bundle)")
+                }
+                XCTAssertFalse(transition.isAnimating, bundle)
+            }
+            let (_, nextIdentity) = try receive(["title": "Next song", "contentItemIdentifier": "next"], diff: true)
+            XCTAssertNotEqual(nextIdentity, identity, bundle)
+        }
+    }
+
+    func testSameTitleDifferentArtistWithNewItemIDIsANewTrack() {
+        var tracker = AlbumArtworkTrackTracker()
+        let first = tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "1", artist: "Artist", album: "Album")
+        let second = tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "2", artist: "Other artist", album: "Other album")
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(second, tracker.update(bundleIdentifier: "player", title: "Song", sourceTrackIdentifier: "seek", artist: "Other artist", album: "Other album"))
+    }
+
+    func testTitleArrivingBeforeReplacementItemIDChangesSongOnlyOnce() {
+        var tracker = AlbumArtworkTrackTracker()
+        let first = tracker.update(bundleIdentifier: "player", title: "First", sourceTrackIdentifier: "old")
+        let next = tracker.update(bundleIdentifier: "player", title: "Next", sourceTrackIdentifier: "old")
+        XCTAssertNotEqual(first, next)
+        XCTAssertEqual(next, tracker.update(bundleIdentifier: "player", title: "Next", sourceTrackIdentifier: "new"))
+        XCTAssertEqual(next, tracker.update(bundleIdentifier: "player", title: "Next", sourceTrackIdentifier: "seek"))
     }
 
     func testArtworkTrackIdentityChangesOnNewTitleAndPlayer() {

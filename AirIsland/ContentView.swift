@@ -17,6 +17,7 @@ import SwiftUIIntrospect
 struct ContentView: View {
     @EnvironmentObject var vm: IslandViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Default(.lightingEffect) private var musicBackgroundEnabled
 
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -83,14 +84,12 @@ struct ContentView: View {
                         closedSurfaceHeight: closedSurfaceHeight,
                         compactWidth: measuredCompactWidth,
                         expandedSize: openNotchSize,
-                        expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
+                        expandedLeadingInset: expandedArtworkLeadingInset,
                         expandedContent: ExpandedNotchLayout(),
                         pagePosition: pagePosition,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
-                        scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
-                        isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork,
-                        showsAmbience: vm.notchState == .open
-                            && pager.selection == .music && musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
+                        scalesCorners: Defaults[.cornerRadiusScaling],
+                        isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork
                     ))
                     .animation(islandAnimation, value: vm.notchState)
                     .animation(islandAnimation, value: measuredCompactWidth)
@@ -225,21 +224,27 @@ struct ContentView: View {
         }
     }
 
+    private var expandedArtworkLeadingInset: CGFloat {
+        expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding
+    }
+
     private func ExpandedNotchLayout() -> some View {
-        VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
+        let dotSide: CGFloat = 5
+        let dotTargetWidth: CGFloat = 18
+        return VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
             HStack(spacing: 0) {
                 ForEach(IslandPage.allCases) { page in
                     Button { selectPage(page) } label: {
                         Circle()
                             .fill(page == .timer && activities.timer?.phase == .finished ? Color.orange : pager.selection == page ? Color.white : Color.gray.opacity(0.6))
-                            .frame(width: 5, height: 5).frame(width: 18, height: 24)
+                            .frame(width: dotSide, height: dotSide).frame(width: dotTargetWidth, height: 24)
                     }
                     .buttonStyle(.plain).accessibilityLabel(Text(page.title))
                     .accessibilityAddTraits(pager.selection == page ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, expandedHorizontalInset + 8)
+            .padding(.leading, expandedArtworkLeadingInset - (dotTargetWidth - dotSide) / 2)
             .frame(height: max(24, vm.effectiveClosedNotchHeight))
             if vm.notchState == .open {
                 HStack(spacing: 0) {
@@ -247,20 +252,38 @@ struct ContentView: View {
                     expandedPage(.reminders) { RemindersActivityPage(active: pager.selection == .reminders) }
                     expandedPage(.timer) { TimerActivityPage(active: pager.selection == .timer) }
                 }
+                    .frame(width: openNotchSize.width * CGFloat(IslandPage.allCases.count),
+                           height: expandedPageHeight, alignment: .leading)
                     .offset(x: -pagePosition * openNotchSize.width)
-                    .frame(width: openNotchSize.width, alignment: .leading)
+                    .frame(width: openNotchSize.width, height: expandedPageHeight, alignment: .leading)
                     .clipped()
                     .background {
                         HorizontalPagingGesture(action: handleHorizontalGesture)
                     }
             }
         }
-        .padding(.bottom, MusicPlayerImageSizes.panelPadding)
+    }
+
+    private var expandedPageHeight: CGFloat {
+        max(0, openNotchSize.height - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
     }
 
     private func expandedPage<Content: View>(_ page: IslandPage, @ViewBuilder content: () -> Content) -> some View {
         content().padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
-            .frame(width: openNotchSize.width)
+            .padding(.bottom, MusicPlayerImageSizes.panelPadding)
+            .frame(width: openNotchSize.width, height: expandedPageHeight)
+            .background {
+                if page == .music {
+                    IslandBackdrop(color: musicManager.avgColor,
+                        topClearance: max(0, vm.physicalNotchHeight - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing),
+                        showsArtwork: musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && musicBackgroundEnabled)
+                        // The moving edge can be inside the stationary island mask.
+                        // Give the background its own matching contour before paging.
+                        .clipShape(NotchShape(
+                            topCornerRadius: Defaults[.cornerRadiusScaling] ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top,
+                            bottomCornerRadius: Defaults[.cornerRadiusScaling] ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom))
+                }
+            }
             .accessibilityHidden(pager.selection != page)
             .allowsHitTesting(pager.selection == page)
             .disabled(pager.selection != page)
@@ -465,10 +488,8 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     var pagePosition: CGFloat
     let keepsCompactVisible: Bool
     let scalesCorners: Bool
-    let artwork: NSImage
     let isArtworkPaused: Bool
     let showsArtwork: Bool
-    let showsAmbience: Bool
 
     var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>> {
         get { AnimatablePair(expansion, AnimatablePair(compactWidth, AnimatablePair(closedSurfaceHeight, pagePosition))) }
@@ -512,10 +533,10 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
                     .allowsHitTesting(vm.notchState == .open && showsArtwork)
                     .accessibilityHidden(!showsArtwork)
             }
-            .background {
-                IslandBackdrop(artwork: artwork, topClearance: max(vm.physicalNotchHeight, closedHeight),
-                               showsArtwork: showsAmbience)
-            }
+            .background { Color.black }
+            // Flatten page backgrounds and the persistent cover before applying
+            // the one island mask, including unanimated trackpad updates.
+            .compositingGroup()
             .clipShape(NotchShape(topCornerRadius: top, bottomCornerRadius: bottom))
             .overlay(alignment: .top) {
                 Rectangle().fill(.black).frame(height: 1).padding(.horizontal, top)

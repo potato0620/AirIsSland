@@ -11,12 +11,14 @@ enum IslandArtworkRenderProbe {
     static var appearances = 0
     static var reduceMotion = false
     static var surfaceSize = CGSize.zero
+    static var musicBackgroundFrame = CGRect.zero
     static var selectedPage = IslandPage.music
     static var renderedPagePosition: CGFloat = 0
     static var selectPage: ((IslandPage) -> Void)?
     static var horizontalGesture: ((Double, Double, NSEvent.Phase) -> Void)?
     static var startTimer: ((TimeInterval) -> Void)?
     static var actionFrames: [String: CGRect] = [:]
+    static var actionHandlers: [String: () -> Void] = [:]
 }
 
 private struct ActionButtonSizes: PreferenceKey {
@@ -81,6 +83,11 @@ private struct ActionButtonSizes: PreferenceKey {
                 await verifyResidentSelection(output: output)
                 exit(0)
             }
+            if CommandLine.arguments.contains("--playback-only") {
+                await verifyArtworkReadiness()
+                await verifySeekingDoesNotAnnounceTrackChanges()
+                exit(0)
+            }
             for (index, screen) in NSScreen.screens.enumerated() {
                 for lighting in [false, true] {
                     Defaults[.lightingEffect] = lighting
@@ -93,6 +100,7 @@ private struct ActionButtonSizes: PreferenceKey {
             IslandArtworkRenderProbe.reduceMotion = true
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
             await verifyArtworkReadiness()
+            await verifySeekingDoesNotAnnounceTrackChanges()
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
             await verifyActionButtonSizes(output: output)
@@ -202,7 +210,8 @@ private struct ActionButtonSizes: PreferenceKey {
         let actions: [(String, String, String, Color?)] = [
             ("reset", "Reset timer", "xmark", nil), ("start", "Start", "play.fill", .orange),
             ("pause", "Pause timer", "pause.fill", .orange), ("resume", "Resume timer", "play.fill", .orange),
-            ("done", "Done", "checkmark", .orange), ("add", "Add reminder", "plus", .blue),
+            ("restart", "Restart timer", "arrow.clockwise", .orange), ("close", "Close", "xmark", nil),
+            ("add", "Add reminder", "plus", .blue),
             ("disabled", "Start", "play.fill", .orange)
         ]
         var sizes: [String: CGSize] = [:]
@@ -234,7 +243,7 @@ private struct ActionButtonSizes: PreferenceKey {
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: rep)
         try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("native-island-action-buttons.png"))
-        print("PASS: all seven island action/disabled variants have equal 44-point bounds")
+        print("PASS: all eight island action/disabled variants have equal 44-point bounds")
     }
 
     @MainActor static func verifyAlarmMotion(output: URL) async {
@@ -273,7 +282,7 @@ private struct ActionButtonSizes: PreferenceKey {
             print("Alarm motion probe: \(name), \(distinct.count) distinct rendered frames")
             return distinct.count
         }
-        let standalone = await frames(TimerFinishedIcon().font(.title2), name: "standalone")
+        let standalone = await frames(TimerFinishedIcon(), name: "standalone")
         require(standalone >= 8, "Alarm icon remained static while active")
         let page = await frames(TimerActivityPage(), name: "page")
         require(page >= 8, "Alarm animation stopped inside the production timer page")
@@ -538,11 +547,28 @@ private struct ActionButtonSizes: PreferenceKey {
         source.start(duration: 1)
         try? await Task.sleep(for: .seconds(1.1))
         require(activities.current?.kind == .timerFinished, "A new timer did not produce its own completion alert")
-        source.start(duration: 60)
-        require(activities.timer?.phase == .running && activities.current?.kind == .timer,
-                "Starting a replacement timer left the previous completion alert visible")
-        source.cancel()
-        require(activities.current?.kind == .music, "Cancelling a replacement timer restored its old completion alert")
+        let completed = activities.timer!
+        guard let restart = IslandArtworkRenderProbe.actionHandlers["arrow.clockwise"] else {
+            require(false, "Finished timer did not expose its restart action")
+            return
+        }
+        restart()
+        require(activities.timer?.phase == .running && activities.current?.kind == .timer
+                    && activities.timer?.duration == completed.duration && activities.timer?.id != completed.id,
+                "Restart did not create a fresh timer of the completed duration or withdraw the old alert")
+        let restarted = try! JSONDecoder().decode(TimerSession.self,
+            from: UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1")!)
+        require(restarted == activities.timer, "Restarted countdown was not persisted")
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.current?.kind == .timerFinished, "Restarted countdown did not produce its own completion")
+        guard let close = IslandArtworkRenderProbe.actionHandlers["xmark"] else {
+            require(false, "Finished timer did not expose its close action")
+            return
+        }
+        close()
+        require(activities.timer == nil && activities.current?.kind == .music
+                    && UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1") == nil,
+                "Close did not clear the completed timer and restore music")
         source.start(duration: 1500)
         source.togglePause()
         await snapshot(TimerActivityPage(), name: "native-timer-paused")
@@ -557,6 +583,8 @@ private struct ActionButtonSizes: PreferenceKey {
     @MainActor static func verifyResidentSelection(output: URL) async {
         let activities = ActivityCoordinator.shared
         let source = TimerActivityManager.shared
+        let previousLighting = Defaults[.lightingEffect]
+        Defaults[.lightingEffect] = true
         let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
         Defaults[.timerActivityEnabled] = true
         Defaults[.musicLiveActivityEnabled] = true
@@ -568,6 +596,7 @@ private struct ActionButtonSizes: PreferenceKey {
         activities.setMusicActive(false)
         activities.setMusicActive(true)
         defer {
+            Defaults[.lightingEffect] = previousLighting
             source.cancel(); source.stop()
             activities.setReminders([])
             Defaults[.remindersActivityEnabled] = false
@@ -593,6 +622,18 @@ private struct ActionButtonSizes: PreferenceKey {
         try? await Task.sleep(for: .seconds(0.3))
         vm.open()
         try? await Task.sleep(for: .seconds(0.7))
+        func verifyAmbience(visible: Bool) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let x = (host.bounds.width - openNotchSize.width) / 2 + 20
+            let pixel = rep.colorAt(x: Int(x * scale), y: Int(110 * scale))!.usingColorSpace(.deviceRGB)!
+            let brightness = max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+            require(visible ? brightness > 0.025 : brightness < 0.015,
+                    "Music ambience visibility does not match the selected page: \(IslandArtworkRenderProbe.selectedPage), \(brightness)")
+        }
+        verifyAmbience(visible: false)
         require(IslandArtworkRenderProbe.selectedPage == .timer, "Automatic opening did not follow the timer")
         require(IslandArtworkRenderProbe.selectPage != nil && IslandArtworkRenderProbe.horizontalGesture != nil,
                 "Production page interaction probes were not installed")
@@ -604,11 +645,66 @@ private struct ActionButtonSizes: PreferenceKey {
             try? await Task.sleep(for: .seconds(0.2))
         }
         await swipeLeft()
+        verifyAmbience(visible: false)
         require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current?.kind == .timer,
                 "Browsing an empty page changed the resident activity")
         await swipeLeft()
         require(IslandArtworkRenderProbe.selectedPage == .music && activities.current?.kind == .music,
                 "Manual swipe did not select resident music")
+        try? await Task.sleep(for: .seconds(0.5))
+        verifyAmbience(visible: true)
+        func verifyMusicBottom(_ name: String, visible: Bool = true) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let x = (host.bounds.width - openNotchSize.width) / 2 + 70
+                - IslandArtworkRenderProbe.renderedPagePosition * openNotchSize.width
+            let pixel = rep.colorAt(x: Int(x * scale), y: Int(184 * scale))!.usingColorSpace(.deviceRGB)!
+            let brightness = max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
+            try! rep.representation(using: .png, properties: [:])!.write(
+                to: output.appendingPathComponent("music-background-\(name).png"))
+            require(visible ? brightness > 0.035 : brightness < 0.015,
+                    "Music background stopped covering its bottom during \(name): \(brightness), host=\(host.bounds), background=\(IslandArtworkRenderProbe.musicBackgroundFrame), page=\(IslandArtworkRenderProbe.renderedPagePosition), surface=\(IslandArtworkRenderProbe.surfaceSize)")
+        }
+        verifyMusicBottom("initial")
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0, .began)
+        for frame in 0..<8 {
+            IslandArtworkRenderProbe.horizontalGesture?(-16, 0.12, .changed)
+            try? await Task.sleep(for: .seconds(0.04))
+            verifyMusicBottom("drag-\(frame)")
+        }
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0, .ended)
+        for frame in 0..<12 {
+            try? await Task.sleep(for: .seconds(0.04))
+            verifyMusicBottom("return-\(frame)")
+        }
+        // Expose the moving page edge inside the island, where the outer mask
+        // cannot supply the background's own lower corner.
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0, .began)
+        for frame in 0..<4 {
+            IslandArtworkRenderProbe.horizontalGesture?(12, 0.12, .changed)
+            try? await Task.sleep(for: .seconds(0.04))
+            verifyMusicBottom("corner-drag-\(frame)")
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let right = (host.bounds.width + openNotchSize.width) / 2
+                - IslandArtworkRenderProbe.renderedPagePosition * openNotchSize.width
+            let x = right - cornerRadiusInsets.opened.top - 2
+            let pixel = rep.colorAt(x: Int(x * scale), y: Int(186 * scale))!.usingColorSpace(.deviceRGB)!
+            require(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.015,
+                    "Moving music background has a square corner inside the island")
+        }
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0, .ended)
+        try? await Task.sleep(for: .seconds(0.5))
+        Defaults[.lightingEffect] = false
+        try? await Task.sleep(for: .seconds(0.15))
+        verifyMusicBottom("disabled", visible: false)
+        Defaults[.lightingEffect] = true
+        try? await Task.sleep(for: .seconds(0.15))
+        verifyMusicBottom("reenabled")
+        print("PASS: music background fills the bottom during drag/return; preference toggles it immediately")
         source.togglePause()
         require(activities.current?.kind == .music, "A timer payload update overwrote the resident choice")
         vm.close()
@@ -619,6 +715,9 @@ private struct ActionButtonSizes: PreferenceKey {
         IslandArtworkRenderProbe.selectPage?(.timer)
         try? await Task.sleep(for: .seconds(0.2))
         require(activities.current?.kind == .timer, "Page-dot selection did not select resident timer")
+        try? await Task.sleep(for: .seconds(0.5))
+        verifyAmbience(visible: false)
+        print("PASS: production music page has ambience; reminder and timer pages have a black background")
         vm.close()
         try? await Task.sleep(for: .seconds(0.7))
         func snapshot(_ name: String) {
@@ -789,6 +888,53 @@ private struct ActionButtonSizes: PreferenceKey {
         print("PASS: production MusicManager waits for playback and decoded artwork, preserves late/refined covers and handles failure/resume")
     }
 
+    @MainActor static func verifySeekingDoesNotAnnounceTrackChanges() async {
+        let music = MusicManager.shared
+        let activities = ActivityCoordinator.shared
+        activities.setTimer(nil)
+        activities.setReminders([])
+        for bundle in ["com.tencent.QQMusicMac", "com.netease.163music", "com.apple.Music", "com.spotify.client", "other-player"] {
+            var state = PlaybackState(bundleIdentifier: bundle, sourceTrackIdentifier: "original", isPlaying: true,
+                                      title: "Seek regression", artist: "Artist", album: "Album", duration: 306)
+            state.artwork = NSBitmapImageRep(data: artwork(size: 200).tiffRepresentation!)!
+                .representation(using: .png, properties: [:])!
+            music.updateFromPlaybackState(state)
+            try? await Task.sleep(for: .seconds(0.25))
+            require(activities.current?.kind == .musicChange, "A new song did not produce its track-change activity: \(bundle)")
+            activities.end(.musicChange)
+            let identity = music.albumArtTrackIdentifier
+            for (index, position) in [109.0, 3, 250, 0].enumerated() {
+                state.currentTime = position
+                state.sourceTrackIdentifier = "seek-\(index)"
+                state.artwork = NSBitmapImageRep(data: artwork(size: CGFloat(240 + index * 20)).tiffRepresentation!)!
+                    .representation(using: .png, properties: [:])!
+                music.updateFromPlaybackState(state)
+                try? await Task.sleep(for: .seconds(0.25))
+                require(music.elapsedTime == position, "Seek did not update the actual progress: \(bundle)")
+                require(music.albumArtTrackIdentifier == identity, "Seek triggered a cover flip: \(bundle)")
+                require(activities.current?.kind == .music, "Seek or cover refresh posted a track-change activity: \(bundle)")
+                state.isPlaying = false
+                music.updateFromPlaybackState(state)
+                state.isPlaying = true
+                music.updateFromPlaybackState(state)
+                require(activities.current?.kind == .music, "Same-song resume posted a track-change activity: \(bundle)")
+            }
+            state.title = "Actual next song"
+            state.sourceTrackIdentifier = "next"
+            music.updateFromPlaybackState(state)
+            try? await Task.sleep(for: .seconds(0.25))
+            require(music.albumArtTrackIdentifier != identity, "Real track change no longer flips its cover: \(bundle)")
+            require(activities.current?.kind == .musicChange, "Real track change no longer posts its activity: \(bundle)")
+            activities.end(.musicChange)
+            state.artwork = NSBitmapImageRep(data: artwork(size: 500).tiffRepresentation!)!
+                .representation(using: .png, properties: [:])!
+            music.updateFromPlaybackState(state)
+            try? await Task.sleep(for: .seconds(0.25))
+            require(activities.current?.kind == .music, "Late artwork replayed the track-change activity: \(bundle)")
+        }
+        print("PASS: production MusicManager seeking, regenerated IDs, cover refresh and resume keep song identity without musicChange; real track changes still flip and announce")
+    }
+
     @MainActor static func verifyPausedArtwork(output: URL, changing: Bool = false) async {
         let music = MusicManager.shared
         let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
@@ -915,7 +1061,7 @@ private struct ActionButtonSizes: PreferenceKey {
             if phase.hasPrefix("feedback-expanded") {
                 let left = Int((host.bounds.width - vm.notchSize.width) / 2 * scale + 24 * scale)
                 let right = width - left
-                let headerBottom = Int((max(24, vm.effectiveClosedNotchHeight) - 2) * scale)
+                let headerBottom = Int(max(0, vm.physicalNotchHeight - 2) * scale)
                 let dotsRight = Int(((host.bounds.width - openNotchSize.width) / 2 + cornerRadiusInsets.opened.top + 8 + 54) * scale)
                 for y in stride(from: Int(2 * scale), to: headerBottom, by: 2) {
                     for x in stride(from: left, to: right, by: 2) {

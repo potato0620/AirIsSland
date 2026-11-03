@@ -1,5 +1,6 @@
 import Defaults
 import SwiftUI
+import KeyboardShortcuts
 
 /// Add future approved activities here without adding another top-level settings tab.
 enum ActivitySettingsPage: String, CaseIterable, Identifiable {
@@ -46,6 +47,9 @@ struct TimerActivitySettings: View {
                 Defaults.Toggle(key: .timerActivityEnabled) { Text("Enable timer") }
             } footer: {
                 Text("Turning off the timer cancels the current countdown.")
+                    .settingsNoteStyle()
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
@@ -68,11 +72,11 @@ struct RemindersActivitySettings: View {
                         }
                     }
                     if let error = source.errorMessage {
-                        Text(error).font(.caption).foregroundStyle(.secondary)
+                        Text(error).settingsNoteStyle()
                     }
                 }
                 Text(source.authorized ? LocalizedStringKey("Reminders access granted") : LocalizedStringKey("Reminders access not granted"))
-                    .foregroundStyle(.secondary)
+                    .settingsNoteStyle()
                 Button(source.accessDenied ? LocalizedStringKey("Open Privacy Settings") : LocalizedStringKey("Connect Reminders")) {
                     if source.accessDenied { source.openPrivacySettings() }
                     else { Task { await source.connect() } }
@@ -97,7 +101,7 @@ struct ActivitySettings: View {
                             Label {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(page.title)
-                                    Text(page.summary).font(.caption).foregroundStyle(.secondary)
+                                    Text(page.summary).settingsNoteStyle()
                                 }
                             } icon: {
                                 Image(systemName: page.symbol)
@@ -144,8 +148,17 @@ struct MusicActivitySettings: View {
             } header: {
                 Text("Media playback live activity")
             }
-
-
+            Section {
+                Defaults.Toggle(key: .lightingEffect) {
+                    Text("Music background")
+                }
+                KeyboardShortcuts.Recorder("Toggle Sneak Peek:", name: .toggleSneakPeek)
+            } footer: {
+                Text("Sneak Peek briefly expands the island to show the song title and artist.")
+                    .settingsNoteStyle()
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .accentColor(.effectiveAccent)
     }
@@ -163,9 +176,7 @@ struct SystemFeedbackSettings: View {
                         Text("Replace system HUD")
                             .font(.headline)
                         Text("Replaces the standard macOS volume, display brightness, and keyboard brightness HUDs with a custom design.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .settingsNoteStyle()
                     }
                     Spacer(minLength: 40)
                     Defaults.Toggle("", key: .hudReplacement)
@@ -178,8 +189,7 @@ struct SystemFeedbackSettings: View {
                 if !accessibilityAuthorized {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Accessibility access is required to replace the system HUD.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .settingsNoteStyle()
 
                         HStack(spacing: 12) {
                             Button("Request Accessibility") {

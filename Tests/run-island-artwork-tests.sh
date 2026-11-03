@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CHECK_ROOT="$PROJECT_ROOT/build/checks/artwork-render-tests"
+CHECK_ROOT="${AIRISLAND_ARTWORK_CHECK_ROOT:-$PROJECT_ROOT/build/checks/artwork-render-tests}"
 CHECK_PROJECT="$CHECK_ROOT/project"
 CHECK_DERIVED_DATA="${AIRISLAND_DERIVED_DATA:-$CHECK_ROOT/DerivedData}"
 mkdir -p "$CHECK_ROOT"
@@ -29,13 +29,24 @@ assert token in s
 s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = startTimer }')
 token = '.buttonStyle(IslandActionButtonStyle(tint: tint, iconOnly: true))'
 assert token in s
-p.write_text(s.replace(token, token + '''.background {
+p.write_text(s.replace(token, token + '''.onAppear {
+                IslandArtworkRenderProbe.actionHandlers[icon] = action
+            }.background {
                 GeometryReader { geometry in
                     Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
                         IslandArtworkRenderProbe.actionFrames[icon] = frame
                     }
                 }
             }'''))
+p = check / 'AirIsland/Presentation/IslandBackdrop.swift'
+s = p.read_text()
+p.write_text(s.replace('.clipped()', '''.clipped().background {
+            GeometryReader { geometry in
+                Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                    IslandArtworkRenderProbe.musicBackgroundFrame = frame
+                }
+            }
+        }'''))
 p = check / 'AirIsland/managers/RemindersActivityManager.swift'
 s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func connect()', start)
 s = s[:start] + '    private init() {}\n' + s[end:]

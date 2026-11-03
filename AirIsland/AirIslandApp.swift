@@ -161,6 +161,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(viewModel)
         )
 
+        // The nonactivating panel only takes keyboard focus for explicit text editing.
+        viewModel.$isEditingActivity
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak window] _ in window?.makeKey() }
+            .store(in: &viewModel.cancellables)
+
         window.orderFrontRegardless()
         NotchSpaceManager.shared.notchSpace.windows.insert(window)
 

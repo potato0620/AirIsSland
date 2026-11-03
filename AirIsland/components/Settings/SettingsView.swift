@@ -108,3 +108,13 @@ struct SettingsActionRow<Content: View>: View {
         .padding(.top, 8)
     }
 }
+
+extension View {
+    /// Shared typography for settings descriptions, permission notes and footers.
+    func settingsNoteStyle() -> some View {
+        font(.caption)
+            .foregroundStyle(.secondary)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}

@@ -58,6 +58,7 @@ struct TimerFinishedIcon: View {
 
     var body: some View {
         Image(systemName: "alarm.fill")
+            .font(.system(size: 30, weight: .medium))
             .keyframeAnimator(initialValue: 0.0, repeating: isActive && !reduceMotion) { symbol, angle in
                 symbol.rotationEffect(.degrees(angle))
             } keyframes: { _ in
@@ -70,7 +71,7 @@ struct TimerFinishedIcon: View {
                 LinearKeyframe(0, duration: 0.80)
             }
             .foregroundStyle(.orange)
-            .frame(width: 20, height: 24)
+            .frame(width: 36, height: 38)
             .accessibilityHidden(true)
     }
 }
@@ -89,10 +90,12 @@ struct TimerActivityPage: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Timer").font(.caption).foregroundStyle(.secondary)
+                            if timer.phase != .finished {
+                                Text("Timer").font(.subheadline).foregroundStyle(.secondary)
+                            }
                             if timer.phase == .finished {
-                                HStack(spacing: 8) {
-                                    TimerFinishedIcon(isActive: active).font(.title2)
+                                HStack(spacing: 10) {
+                                    TimerFinishedIcon(isActive: active)
                                     Text("Timer finished").font(.system(size: 28, weight: .light))
                                 }.foregroundStyle(.orange)
                             } else {
@@ -100,12 +103,17 @@ struct TimerActivityPage: View {
                                     .font(.system(size: 50, weight: .light))
                                     .monospacedDigit().foregroundStyle(.orange)
                             }
-                            Text(timer.phase == .running ? LocalizedStringKey("Running") : timer.phase == .paused ? LocalizedStringKey("Paused") : LocalizedStringKey(""))
-                                .font(.caption).foregroundStyle(.secondary)
+                            if timer.phase != .finished {
+                                Text(timer.phase == .running ? LocalizedStringKey("Running") : LocalizedStringKey("Paused"))
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
                         }
                         Spacer(minLength: 0)
                         if timer.phase == .finished {
-                            IslandActionButton("Done", icon: "checkmark", tint: .orange) { TimerActivityManager.shared.cancel() }
+                            HStack(spacing: 12) {
+                                IslandActionButton("Restart timer", icon: "arrow.clockwise", tint: .orange) { startTimer(timer.duration) }
+                                IslandActionButton("Close", icon: "xmark") { TimerActivityManager.shared.cancel() }
+                            }
                         } else {
                             HStack(spacing: 12) {
                                 IslandActionButton("Reset timer", icon: "xmark") { TimerActivityManager.shared.cancel() }
@@ -257,7 +265,7 @@ struct RemindersActivityPage: View {
                         if listIdentifier.isEmpty { Text("All tasks") }
                         else { Text(source.lists.first(where: { $0.id == listIdentifier })?.title ?? String(localized: "Selected list unavailable")) }
                     }.foregroundStyle(.white.opacity(0.5))
-                }.font(.caption).lineLimit(1)
+                }.font(.subheadline).lineLimit(1)
                 VStack(alignment: .leading, spacing: 5) {
                     if let error = source.errorMessage {
                         Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -289,12 +297,13 @@ struct RemindersActivityPage: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .bottomTrailing) {
                     if !adding {
-                        IslandActionButton("Add reminder", icon: "plus", tint: .blue) { adding = true; focused = true }
+                        IslandActionButton("Add reminder", icon: "plus", tint: .blue) { adding = true }
                     }
                 }
                 if adding {
                     HStack(spacing: 8) {
                         TextField("Task title", text: $title).textFieldStyle(.roundedBorder).focused($focused)
+                            .task { focused = true }
                             .onSubmit { add() }
                         IslandActionButton("Add", icon: "checkmark", tint: .blue) { add() }
                             .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -304,7 +313,10 @@ struct RemindersActivityPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .onChange(of: adding) { _, editing in vm.isEditingActivity = editing }
+        .onChange(of: adding) { _, editing in
+            vm.isEditingActivity = editing
+            if !editing { focused = false }
+        }
         .onChange(of: active) { _, active in if !active { adding = false; focused = false } }
         .onDisappear { vm.isEditingActivity = false }
     }

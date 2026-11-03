@@ -11009,6 +11009,22 @@
         }
       }
     },
+    "Music background" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Music background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音乐光影背景"
+          }
+        }
+      }
+    },
     "Never hide" : {
       "localizations" : {
         "ar" : {
@@ -18991,6 +19007,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reminders access not granted"
+          }
+        }
+      }
+    },
+    "Restart timer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart timer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新计时"
           }
         }
       }

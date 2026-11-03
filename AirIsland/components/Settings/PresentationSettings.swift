@@ -183,18 +183,6 @@ struct Shortcuts: View {
     var body: some View {
         Group {
             Section {
-                KeyboardShortcuts.Recorder("Toggle Sneak Peek:", name: .toggleSneakPeek)
-            } header: {
-                Text("Media")
-            } footer: {
-                Text(
-                    "Sneak Peek briefly expands the island to show the song title and artist."
-                )
-                .multilineTextAlignment(.trailing)
-                .foregroundStyle(.secondary)
-                .font(.caption)
-            }
-            Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
             }
         }
