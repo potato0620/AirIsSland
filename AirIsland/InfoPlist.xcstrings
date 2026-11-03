@@ -1,0 +1,20 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSRemindersFullAccessUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。" } }
+      }
+    },
+    "NSRemindersUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -7,6 +7,8 @@ enum IslandPresentation: Equatable {
     case music(peek: Bool)
     case feedback(IslandActivity)
     case power
+    case timer(finished: Bool)
+    case reminders
 
     init(activity: IslandActivity?) {
         guard let activity else { self = .idle; return }
@@ -14,6 +16,9 @@ enum IslandPresentation: Equatable {
         case .music: self = .music(peek: false)
         case .musicChange: self = .music(peek: true)
         case .power: self = .power
+        case .timer: self = .timer(finished: false)
+        case .timerFinished: self = .timer(finished: true)
+        case .reminders: self = .reminders
         case .volume, .brightness, .backlight, .mic: self = .feedback(activity)
         }
     }
@@ -24,6 +29,9 @@ enum IslandPresentation: Equatable {
     }
 
     var showsMusicPeek: Bool { self == .music(peek: true) }
+
+    /// Pending timer completion uses the existing full panel until acknowledged.
+    var requiresExpandedTimer: Bool { self == .timer(finished: true) }
 
     var feedback: IslandActivity? {
         if case .feedback(let activity) = self { return activity }

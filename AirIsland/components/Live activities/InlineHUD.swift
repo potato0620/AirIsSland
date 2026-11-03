@@ -13,7 +13,6 @@ struct InlineHUD: View {
     @Binding var value: Double
     let icon: String
     @Binding var hoverAnimation: Bool
-    @Binding var gestureProgress: CGFloat
     private var hudHeight: CGFloat { max(24, vm.closedNotchSize.height) }
 
     var body: some View {
@@ -37,18 +36,18 @@ struct InlineHUD: View {
                         case .brightness:
                             Image(systemName: BrightnessSymbol(CGFloat(value)))
                                 .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
+                                .frame(width: 20, height: 15, alignment: .leading)
                         case .backlight:
                             Image(systemName: value > 0.5 ? "light.max" : "light.min")
                                 .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
+                                .frame(width: 20, height: 15, alignment: .leading)
                         case .mic:
                             Image(systemName: "mic")
                                 .symbolRenderingMode(.hierarchical)
                                 .symbolVariant(value > 0 ? .none : .slash)
                                 .contentTransition(.interpolate)
-                                .frame(width: 20, height: 15, alignment: .center)
-                        default:
+                                .frame(width: 20, height: 15, alignment: .leading)
+                        case .music, .musicChange, .power, .timer, .timerFinished, .reminders:
                             EmptyView()
                     }
                 }
@@ -62,10 +61,10 @@ struct InlineHUD: View {
                     .allowsTightening(true)
                     .contentTransition(.numericText())
             }
-            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
+            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12)), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
             
             Color.clear
-                .frame(width: vm.closedNotchSize.width - 20)
+                .frame(width: max(0, vm.closedNotchSize.width))
             
             HStack {
                 if (type == .mic) {
@@ -107,8 +106,7 @@ struct InlineHUD: View {
                     }
                 }
             }
-            .padding(.trailing, 4)
-            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .center)
+            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12)), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .trailing)
         }
         .frame(height: max(0, hudHeight + (hoverAnimation ? 8 : 0)), alignment: .center)
     }
@@ -149,14 +147,14 @@ struct InlineHUD: View {
                 return "Backlight"
             case .mic:
                 return "Mic"
-            default:
+            case .music, .musicChange, .power, .timer, .timerFinished, .reminders:
                 return ""
         }
     }
 }
 
 #Preview {
-    InlineHUD(type: .brightness, value: .constant(0.4), icon: "", hoverAnimation: .constant(false), gestureProgress: .constant(0))
+    InlineHUD(type: .brightness, value: .constant(0.4), icon: "", hoverAnimation: .constant(false))
         .padding(.horizontal, 8)
         .background(Color.black)
         .padding()

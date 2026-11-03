@@ -18,6 +18,7 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     @Published private(set) var notchState: NotchState = .closed
+    @Published var isEditingActivity = false
 
     var cancellables: Set<AnyCancellable> = []
     
@@ -103,6 +104,7 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     func close() {
+        guard !IslandPresentation(activity: ActivityCoordinator.shared.current).requiresExpandedTimer else { return }
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed

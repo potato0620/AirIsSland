@@ -11,6 +11,19 @@ enum IslandArtworkRenderProbe {
     static var appearances = 0
     static var reduceMotion = false
     static var surfaceSize = CGSize.zero
+    static var selectedPage = IslandPage.music
+    static var renderedPagePosition: CGFloat = 0
+    static var selectPage: ((IslandPage) -> Void)?
+    static var horizontalGesture: ((Double, Double, NSEvent.Phase) -> Void)?
+    static var startTimer: ((TimeInterval) -> Void)?
+    static var actionFrames: [String: CGRect] = [:]
+}
+
+private struct ActionButtonSizes: PreferenceKey {
+    static let defaultValue: [String: CGSize] = [:]
+    static func reduce(value: inout [String: CGSize], nextValue: () -> [String: CGSize]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
 }
 
 @main struct IslandArtworkRenderTests {
@@ -35,6 +48,8 @@ enum IslandArtworkRenderProbe {
             Defaults[.hudReplacement] = true
             Defaults[.enableShadow] = false
             Defaults[.cornerRadiusScaling] = true
+            Defaults[.enableHaptics] = false
+            Defaults[.remindersActivityEnabled] = false
             let music = MusicManager.shared
             music.songTitle = "Deep Green"
             music.artistName = "Christian Kuria"
@@ -44,6 +59,28 @@ enum IslandArtworkRenderProbe {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--reminders-only") {
+                await renderRemindersPage(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--alarm-only") {
+                await verifyAlarmMotion(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--compact-only") {
+                await verifyCompactAlignment(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--personal-only") {
+                await verifyPersonalActivityRuntime(output: output)
+                await verifyActionButtonSizes(output: output)
+                await verifyAlarmMotion(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--focus-only") {
+                await verifyResidentSelection(output: output)
+                exit(0)
+            }
             for (index, screen) in NSScreen.screens.enumerated() {
                 for lighting in [false, true] {
                     Defaults[.lightingEffect] = lighting
@@ -56,10 +93,608 @@ enum IslandArtworkRenderProbe {
             IslandArtworkRenderProbe.reduceMotion = true
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
             await verifyArtworkReadiness()
+            await verifyResidentSelection(output: output)
+            await verifyPersonalActivityRuntime(output: output)
+            await verifyActionButtonSizes(output: output)
+            await verifyAlarmMotion(output: output)
+            await verifyCompactAlignment(output: output)
             print("PASS: production ContentView, single artwork identity, opaque rounded cover, clear text slots and synchronized geometry")
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func renderRemindersPage(output: URL) async {
+        let source = RemindersActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        defer { vm.destroy() }
+        var addButtonFrame: CGRect?
+        func snapshot(_ name: String, verifyScroll: Bool = false, timer: Bool = false) async {
+            IslandArtworkRenderProbe.actionFrames = [:]
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.orderOut(nil); window.contentView = nil }
+            let host = NSHostingView(rootView: Group {
+                if timer { TimerActivityPage() }
+                else { RemindersActivityPage() }
+            }.environmentObject(vm)
+                .environment(\.locale, Locale(identifier: "zh-Hans"))
+                .preferredColorScheme(.dark)
+                .frame(width: 418, height: 138).frame(width: 480, height: 190).background(.black))
+            window.contentView = host
+            window.orderBack(nil)
+            try? await Task.sleep(for: .seconds(0.7))
+            host.layoutSubtreeIfNeeded()
+            if let frame = IslandArtworkRenderProbe.actionFrames["plus"] { addButtonFrame = frame }
+            if timer {
+                guard let start = IslandArtworkRenderProbe.actionFrames["play.fill"], let add = addButtonFrame else {
+                    require(false, "Could not measure the timer and reminder page buttons")
+                    return
+                }
+                require(abs(start.width - 44) < 0.1 && abs(start.height - 44) < 0.1
+                            && abs(start.minX - add.minX) < 0.1 && abs(start.minY - add.minY) < 0.1
+                            && abs(start.width - add.width) < 0.1 && abs(start.height - add.height) < 0.1,
+                        "Start and add buttons differ in size or position: start=\(start), add=\(add)")
+                func timeWheels(in view: NSView) -> [NSScrollView] {
+                    if let scroll = view as? NSScrollView { return [scroll] }
+                    return view.subviews.flatMap { timeWheels(in: $0) }
+                }
+                let wheels = timeWheels(in: host)
+                let originalCenter = (190.0 - 138.0) / 2 + (138.0 - 48.0) / 2
+                require(wheels.count == 3 && wheels.allSatisfy {
+                    let frame = $0.convert($0.bounds, to: host)
+                    let center = host.isFlipped ? frame.midY : host.bounds.height - frame.midY
+                    return abs(center - originalCenter) < 1
+                }, "Fixing the start button moved the picker away from its original centered position")
+            }
+            if verifyScroll {
+                func scrollView(in view: NSView) -> NSScrollView? {
+                    if let scroll = view as? NSScrollView { return scroll }
+                    return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+                }
+                guard let scroll = scrollView(in: host), let document = scroll.documentView else {
+                    require(false, "Reminders page has no native scroll region")
+                    return
+                }
+                let viewport = scroll.convert(scroll.bounds, to: host)
+                let scrollBottom = host.isFlipped ? viewport.maxY : host.bounds.height - viewport.minY
+                require(addButtonFrame.map { abs(scrollBottom - $0.maxY) < 1 } == true && viewport.height > 100,
+                        "Reminder scroll region did not align with the add button bottom: bottom=\(scrollBottom), button=\(String(describing: addButtonFrame))")
+                let target = document.isFlipped ? max(0, document.bounds.maxY - scroll.contentView.bounds.height) : document.bounds.minY
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: target))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try? await Task.sleep(for: .seconds(0.3))
+                host.layoutSubtreeIfNeeded()
+                require(!document.isFlipped || scroll.documentVisibleRect.maxY >= document.bounds.maxY - 1,
+                        "Could not scroll to the last reminder")
+            }
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+        }
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.reminderListIdentifier] = ""
+        source.authorized = false
+        await snapshot("reminders-disconnected")
+        source.accessDenied = true
+        await snapshot("reminders-permission-denied")
+        source.authorized = true
+        source.accessDenied = false
+        activities.setReminders([ReminderTask(id: "1", title: "体检", dueDate: nil),
+                                 ReminderTask(id: "2", title: "剪头发", dueDate: nil)])
+        await snapshot("reminders-authorized-all")
+        source.lists = [ReminderList(id: "personal", title: "个人待办", account: "", writable: true)]
+        Defaults[.reminderListIdentifier] = "personal"
+        await snapshot("reminders-authorized-list")
+        activities.setReminders((1...12).map {
+            ReminderTask(id: "\($0)", title: "第 \($0) 项待办：检查完整滚动区域与右侧按钮留白", dueDate: nil)
+        })
+        await snapshot("reminders-long-list-bottom", verifyScroll: true)
+        Defaults[.timerActivityEnabled] = true
+        activities.setTimer(nil)
+        await snapshot("timer-start-button-alignment", timer: true)
+        print("PASS: reminder page snapshots rendered with isolated permission/list fixtures; no EventKit connection")
+    }
+
+    @MainActor static func verifyActionButtonSizes(output: URL) async {
+        let actions: [(String, String, String, Color?)] = [
+            ("reset", "Reset timer", "xmark", nil), ("start", "Start", "play.fill", .orange),
+            ("pause", "Pause timer", "pause.fill", .orange), ("resume", "Resume timer", "play.fill", .orange),
+            ("done", "Done", "checkmark", .orange), ("add", "Add reminder", "plus", .blue),
+            ("disabled", "Start", "play.fill", .orange)
+        ]
+        var sizes: [String: CGSize] = [:]
+        let fixture = HStack(spacing: 12) {
+            ForEach(actions.indices, id: \.self) { index in
+                let action = actions[index]
+                IslandActionButton(LocalizedStringKey(action.1), icon: action.2, tint: action.3) {}
+                    .disabled(action.0 == "disabled")
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: ActionButtonSizes.self, value: [action.0: geometry.size])
+                        }
+                    }
+            }
+        }
+        .onPreferenceChange(ActionButtonSizes.self) { sizes = $0 }
+        .frame(width: 480, height: 190).background(.black).preferredColorScheme(.dark)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil }
+        let host = NSHostingView(rootView: fixture)
+        window.contentView = host
+        window.orderBack(nil)
+        try? await Task.sleep(for: .seconds(0.4))
+        host.layoutSubtreeIfNeeded()
+        require(sizes.count == actions.count && sizes.values.allSatisfy { abs($0.width - 44) < 0.1 && abs($0.height - 44) < 0.1 },
+                "Island actions did not keep equal 44-point visual and hit bounds: \(sizes)")
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("native-island-action-buttons.png"))
+        print("PASS: all seven island action/disabled variants have equal 44-point bounds")
+    }
+
+    @MainActor static func verifyAlarmMotion(output: URL) async {
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        IslandArtworkRenderProbe.reduceMotion = false
+        defer { IslandArtworkRenderProbe.reduceMotion = previousReduceMotion }
+        let source = TimerActivityManager.shared
+        Defaults[.timerActivityEnabled] = true
+        source.start(duration: 1)
+        try? await Task.sleep(for: .seconds(1.1))
+        defer { source.cancel(); source.stop() }
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil; vm.destroy() }
+        func frames<V: View>(_ view: V, name: String, prepare: (() -> Void)? = nil) async -> Int {
+            let host = NSHostingView(rootView: view.environmentObject(vm).preferredColorScheme(.dark)
+                .frame(width: 418, height: 138).frame(width: 480, height: 190).background(.black))
+            window.contentView = host
+            window.orderBack(nil)
+            try? await Task.sleep(for: .seconds(0.2))
+            prepare?()
+            try? await Task.sleep(for: .seconds(0.7))
+            var distinct = Set<Data>()
+            for index in 0..<45 {
+                try? await Task.sleep(for: .seconds(0.08))
+                host.layoutSubtreeIfNeeded()
+                let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                host.cacheDisplay(in: host.bounds, to: rep)
+                distinct.insert(Data(bytes: rep.bitmapData!, count: rep.bytesPerRow * rep.pixelsHigh))
+                if index % 5 == 0 {
+                    try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("alarm-\(name)-\(index).png"))
+                }
+            }
+            print("Alarm motion probe: \(name), \(distinct.count) distinct rendered frames")
+            return distinct.count
+        }
+        let standalone = await frames(TimerFinishedIcon().font(.title2), name: "standalone")
+        require(standalone >= 8, "Alarm icon remained static while active")
+        let page = await frames(TimerActivityPage(), name: "page")
+        require(page >= 8, "Alarm animation stopped inside the production timer page")
+        let automatic = await frames(ContentView(), name: "auto-expanded")
+        require(automatic >= 8, "Alarm animation stopped inside the automatically expanded island")
+        require(vm.notchState == .open && IslandArtworkRenderProbe.selectedPage == .timer
+                    && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
+                    && abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 1
+                    && abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 1,
+                "Pending completion did not automatically use the full timer page")
+        let expanded = await frames(ContentView(), name: "expanded", prepare: { vm.open() })
+        require(expanded >= 8, "Alarm animation stopped inside the expanded island")
+        IslandArtworkRenderProbe.reduceMotion = true
+        let reduced = await frames(TimerActivityPage(), name: "reduced-motion")
+        require(reduced == 1, "Reduce Motion did not stop the alarm animation")
+        IslandArtworkRenderProbe.reduceMotion = false
+        let inactive = await frames(TimerActivityPage(active: false), name: "inactive")
+        require(inactive == 1, "An inactive timer page kept animating its alarm")
+    }
+
+    @MainActor static func verifyCompactAlignment(output: URL) async {
+        let source = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        Defaults[.timerActivityEnabled] = true
+        Defaults[.lightingEffect] = false
+        source.cancel()
+        defer { source.cancel(); source.stop() }
+        for height: CGFloat in [24, 32] {
+            let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+            vm.hideOnClosed = false
+            vm.closedNotchSize = CGSize(width: 185, height: height)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 210),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            let host = NSHostingView(rootView: ContentView().environmentObject(vm)
+                .environment(\.locale, Locale(identifier: "zh-Hans")))
+            window.contentView = host
+            window.orderBack(nil)
+            func capture(_ name: String) -> CGFloat {
+                host.layoutSubtreeIfNeeded()
+                let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("compact-\(Int(height))-\(name).png"))
+                let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+                let surface = IslandArtworkRenderProbe.surfaceSize
+                let surfaceLeft = (host.bounds.width - surface.width) / 2
+                var first = rep.pixelsWide, last = -1
+                for y in 0..<Int(height * scale) {
+                    for x in Int(ceil(surfaceLeft * scale))..<Int(floor((surfaceLeft + surface.width) * scale)) {
+                        let pixel = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                        if pixel.alphaComponent > 0.5 && max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) > 0.15 {
+                            first = min(first, x); last = max(last, x)
+                            let point = (CGFloat(x) + 0.5) / scale
+                            require(abs(point - host.bounds.midX) >= vm.closedNotchSize.width / 2,
+                                    "Compact content entered the physical notch safe area: \(name)")
+                        }
+                    }
+                }
+                require(first < rep.pixelsWide / 2 && last > rep.pixelsWide / 2, "Missing compact content: \(name)")
+                let leading = CGFloat(first) / scale - surfaceLeft
+                let trailing = surfaceLeft + surface.width - CGFloat(last + 1) / scale
+                require(abs(leading - trailing) <= 3,
+                        "Unequal compact outer margins in \(name), height \(height): left \(leading), right \(trailing)")
+                require(surface.width <= openNotchSize.width + 1, "Compact content exceeded its window budget")
+                print("PASS: compact \(name), height \(height), outer margins \(leading)/\(trailing), width \(surface.width)")
+                return surface.width
+            }
+            source.start(duration: 1500)
+            try? await Task.sleep(for: .seconds(0.7))
+            let short = capture("timer-minutes")
+            source.start(duration: 3660)
+            try? await Task.sleep(for: .seconds(0.7))
+            let long = capture("timer-hours")
+            require(long > short + 5, "Compact timer width did not adapt to its longer time label")
+            source.cancel()
+            try? await Task.sleep(for: .seconds(0.7))
+            _ = capture("music")
+            for kind in IslandActivityKind.allCases where kind.isSystemFeedback {
+                activities.post(kind, value: 0.5)
+                try? await Task.sleep(for: .seconds(0.7))
+                _ = capture(kind.rawValue)
+                activities.end(kind)
+            }
+            window.orderOut(nil)
+            window.contentView = nil
+            vm.destroy()
+        }
+    }
+
+    @MainActor static func verifyPersonalActivityRuntime(output: URL) async {
+        let source = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        Defaults[.timerActivityEnabled] = true
+        source.cancel()
+        defer { source.cancel(); source.stop() }
+        source.start(duration: 1)
+        let oldID = activities.timer!.id
+        source.start(duration: 2)
+        let currentID = activities.timer!.id
+        require(oldID != currentID, "Replacement timer reused the old identity")
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.timer?.id == currentID && activities.timer?.phase == .running,
+                "Old deadline completed a replacement timer")
+        source.togglePause()
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.timer?.phase == .paused, "Paused timer continued to its previous deadline")
+        source.togglePause()
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.timer?.phase == .finished && activities.current?.kind == .timerFinished,
+                "Real timer completion did not enter scheduled emphasis")
+        let finishedID = activities.timer!.id
+        try? await Task.sleep(for: .seconds(2))
+        activities.setTimer(activities.timer)
+        require(activities.current?.kind == .timerFinished, "Completion alert disappeared without acknowledgement")
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.current?.kind == .timerFinished, "Completion alert still uses the former three-second timeout")
+        require(activities.timer?.id == finishedID && activities.timer?.phase == .finished,
+                "Pending completion lost its timer identity")
+        activities.setTimer(activities.timer)
+        require(activities.current?.kind == .timerFinished, "Refreshing the finished record dismissed its pending alert")
+        activities.setMusicActive(false)
+        require(activities.current?.kind == .timerFinished, "Stopping music dismissed the pending completion alert")
+        activities.setMusicActive(true)
+
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil }
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        defer { vm.destroy() }
+        vm.hideOnClosed = false
+        let alertHost = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = alertHost
+        window.orderBack(nil)
+        // First creation of the native page can delay the start of the transition.
+        // Wait for the real endpoint instead of mistaking a cold-layout frame for it.
+        func settleSurface(expanded: Bool) async {
+            for _ in 0..<180 {
+                try? await Task.sleep(for: .seconds(0.016))
+                alertHost.layoutSubtreeIfNeeded()
+                let size = IslandArtworkRenderProbe.surfaceSize
+                if expanded {
+                    if activities.current?.kind == .timerFinished && vm.notchState == .open
+                        && IslandArtworkRenderProbe.selectedPage == .timer
+                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.001
+                        && abs(size.width - openNotchSize.width) < 0.1
+                        && abs(size.height - openNotchSize.height) < 0.1 { break }
+                } else if vm.notchState == .closed && abs(size.height - vm.effectiveClosedNotchHeight) < 0.1 { break }
+            }
+        }
+        await settleSurface(expanded: true)
+        func requireTimerPage(_ message: String) {
+            require(activities.current?.kind == .timerFinished && vm.notchState == .open
+                        && IslandArtworkRenderProbe.selectedPage == .timer
+                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
+                        && abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 1
+                        && abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 1,
+                    "\(message): state=\(vm.notchState), page=\(IslandArtworkRenderProbe.selectedPage), offset=\(IslandArtworkRenderProbe.renderedPagePosition), surface=\(IslandArtworkRenderProbe.surfaceSize)")
+        }
+        requireTimerPage("Restored pending completion did not open the full timer page")
+        vm.close() // Same close path used by hover departure and the keyboard shortcut.
+        try? await Task.sleep(for: .seconds(0.2))
+        requireTimerPage("Hover/shortcut close dismissed the pending full-size completion page")
+        source.cancel()
+        await settleSurface(expanded: false)
+        require(vm.notchState == .closed && activities.current?.kind == .music
+                    && IslandArtworkRenderProbe.surfaceSize.width < openNotchSize.width,
+                "Acknowledgement did not collapse the full page and restore music")
+        source.start(duration: 1)
+        await settleSurface(expanded: true)
+        requireTimerPage("Timer completion while closed did not open the full timer page")
+        source.cancel()
+        await settleSurface(expanded: false)
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandArtworkRenderProbe.selectedPage == .music, "Fixture failed to open the music page")
+        source.start(duration: 1)
+        await settleSurface(expanded: true)
+        requireTimerPage("Timer completion while music was expanded did not switch to the full timer page")
+        let alertImage = alertHost.bitmapImageRepForCachingDisplay(in: alertHost.bounds)!
+        alertHost.cacheDisplay(in: alertHost.bounds, to: alertImage)
+        try! alertImage.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("native-timer-completion-expanded.png"))
+        vm.open()
+        func snapshot<V: View>(_ view: V, name: String) async {
+            let host = NSHostingView(rootView: view.environmentObject(vm)
+                .environment(\.locale, Locale(identifier: "zh-Hans"))
+                .preferredColorScheme(.dark)
+                .frame(width: 418, height: 138).frame(width: 480, height: 190).background(.black))
+            window.contentView = host
+            window.orderBack(nil)
+            try? await Task.sleep(for: .seconds(0.4))
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+        }
+        await snapshot(TimerActivityPage(), name: "native-timer-finished")
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        IslandArtworkRenderProbe.reduceMotion = true
+        await snapshot(TimerActivityPage(), name: "native-timer-finished-reduced-motion")
+        IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+        await snapshot(RemindersActivityPage(), name: "native-reminders-unconnected")
+        await snapshot(TimerDurationForm(start: { _ in }), name: "native-timer-picker")
+        var minuteSelection = 25
+        await snapshot(DurationColumn(value: Binding(get: { minuteSelection }, set: { minuteSelection = $0 }), count: 60, label: "Minutes"),
+                       name: "native-minute-selection")
+        require(minuteSelection == 25, "Native wheel initialization changed the requested duration")
+        func scrollView(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+        }
+        let nativeScroll = scrollView(in: window.contentView!)
+        require(nativeScroll != nil, "Native minute picker has no system scroll view")
+        let origin = nativeScroll!.contentView.bounds.origin
+        nativeScroll!.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + 26))
+        nativeScroll!.reflectScrolledClipView(nativeScroll!.contentView)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(minuteSelection == 26, "Native wheel center and selected duration diverged after scrolling")
+        var boundary = 0
+        await snapshot(DurationColumn(value: Binding(get: { boundary }, set: { boundary = $0 }), count: 60, label: "Seconds"),
+                       name: "native-second-zero")
+        require(boundary == 0, "Native wheel moved its minimum value during layout")
+        boundary = 59
+        await snapshot(DurationColumn(value: Binding(get: { boundary }, set: { boundary = $0 }), count: 60, label: "Seconds"),
+                       name: "native-second-maximum")
+        require(boundary == 59, "Native wheel moved its maximum value during layout")
+        source.cancel()
+        require(activities.current?.kind == .music && activities.timer == nil,
+                "Acknowledging completion did not clear the timer and restore music")
+        require(UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1") == nil,
+                "Acknowledging completion retained the stored finished session")
+        await snapshot(TimerActivityPage(), name: "native-timer-empty")
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            if let scroll = view as? NSScrollView { return [scroll] }
+            return view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let idleWheels = scrollViews(in: window.contentView!)
+        require(idleWheels.count == 3, "Idle timer page did not directly show its three time wheels")
+        require(!vm.isEditingActivity, "Idle timer picker blocked horizontal paging with a persistent editing lock")
+        let defaultMinuteOrigin = idleWheels[1].contentView.bounds.origin
+        idleWheels[1].contentView.scroll(to: NSPoint(x: defaultMinuteOrigin.x, y: defaultMinuteOrigin.y + 26))
+        idleWheels[1].reflectScrolledClipView(idleWheels[1].contentView)
+        try? await Task.sleep(for: .seconds(0.2))
+        source.start(duration: 60)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(scrollViews(in: window.contentView!).isEmpty, "Running timer retained the setup wheels")
+        source.togglePause()
+        source.cancel() // The running/paused page's X action.
+        try? await Task.sleep(for: .seconds(0.4))
+        let resetWheels = scrollViews(in: window.contentView!)
+        require(resetWheels.count == 3 && abs(resetWheels[1].contentView.bounds.origin.y - defaultMinuteOrigin.y) < 1,
+                "Cancelling a timer did not restore the default picker selection")
+        // Capture the live page that actually transitioned through start/pause/reset.
+        // Replacing its hosting view here would test a separate initial layout instead.
+        let resetView = window.contentView!
+        resetView.layoutSubtreeIfNeeded()
+        let resetImage = resetView.bitmapImageRepForCachingDisplay(in: resetView.bounds)!
+        resetView.cacheDisplay(in: resetView.bounds, to: resetImage)
+        try! resetImage.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("native-timer-reset-picker.png"))
+        source.start(duration: 1)
+        try? await Task.sleep(for: .seconds(1.1))
+        require(activities.current?.kind == .timerFinished, "A new timer did not produce its own completion alert")
+        source.start(duration: 60)
+        require(activities.timer?.phase == .running && activities.current?.kind == .timer,
+                "Starting a replacement timer left the previous completion alert visible")
+        source.cancel()
+        require(activities.current?.kind == .music, "Cancelling a replacement timer restored its old completion alert")
+        source.start(duration: 1500)
+        source.togglePause()
+        await snapshot(TimerActivityPage(), name: "native-timer-paused")
+        Defaults[.timerActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.timer == nil && UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1") == nil,
+                "Disabling the timer retained a deadline or its stored session")
+        Defaults[.timerActivityEnabled] = true
+        print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
+    }
+
+    @MainActor static func verifyResidentSelection(output: URL) async {
+        let activities = ActivityCoordinator.shared
+        let source = TimerActivityManager.shared
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        Defaults[.timerActivityEnabled] = true
+        Defaults[.musicLiveActivityEnabled] = true
+        Defaults[.enableSneakPeek] = true
+        Defaults[.hudReplacement] = true
+        IslandArtworkRenderProbe.reduceMotion = false
+        source.cancel()
+        for kind in IslandActivityKind.allCases where kind != .music { activities.end(kind) }
+        activities.setMusicActive(false)
+        activities.setMusicActive(true)
+        defer {
+            source.cancel(); source.stop()
+            activities.setReminders([])
+            Defaults[.remindersActivityEnabled] = false
+            for kind in IslandActivityKind.allCases where kind != .music { activities.end(kind) }
+            activities.setMusicActive(false)
+            activities.setMusicActive(true)
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+            IslandArtworkRenderProbe.selectPage = nil
+            IslandArtworkRenderProbe.horizontalGesture = nil
+            IslandArtworkRenderProbe.startTimer = nil
+        }
+        source.start(duration: 1500)
+        require(activities.current?.kind == .timer, "Default priority no longer prefers the timer")
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 600, height: 260),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.hideOnClosed = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; vm.destroy() }
+        try? await Task.sleep(for: .seconds(0.3))
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandArtworkRenderProbe.selectedPage == .timer, "Automatic opening did not follow the timer")
+        require(IslandArtworkRenderProbe.selectPage != nil && IslandArtworkRenderProbe.horizontalGesture != nil,
+                "Production page interaction probes were not installed")
+        // Drive the production swipe handler: the empty reminders page must not replace the resident timer.
+        func swipeLeft() async {
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+            IslandArtworkRenderProbe.horizontalGesture?(-300, 0.02, .changed)
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+            try? await Task.sleep(for: .seconds(0.2))
+        }
+        await swipeLeft()
+        require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current?.kind == .timer,
+                "Browsing an empty page changed the resident activity")
+        await swipeLeft()
+        require(IslandArtworkRenderProbe.selectedPage == .music && activities.current?.kind == .music,
+                "Manual swipe did not select resident music")
+        source.togglePause()
+        require(activities.current?.kind == .music, "A timer payload update overwrote the resident choice")
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.7))
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandArtworkRenderProbe.selectedPage == .music, "Reopening forgot the manual resident choice")
+        IslandArtworkRenderProbe.selectPage?(.timer)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(activities.current?.kind == .timer, "Page-dot selection did not select resident timer")
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.7))
+        func snapshot(_ name: String) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+        }
+        activities.post(.musicChange)
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandPresentation(activity: activities.current).showsMusicPeek && vm.notchState == .closed,
+                "Song change did not temporarily show the compact song/artist peek")
+        snapshot("resident-timer-song-peek")
+        try? await Task.sleep(for: .seconds(2.5))
+        require(activities.current?.kind == .timer && vm.notchState == .closed,
+                "Song peek expiry did not restore the selected timer")
+        try? await Task.sleep(for: .seconds(0.7))
+        snapshot("resident-timer-restored")
+        activities.prefer(.music)
+        activities.post(.volume, value: 0.5)
+        require(activities.current?.kind == .volume, "Manual choice blocked system feedback")
+        try? await Task.sleep(for: .seconds(1.7))
+        require(activities.current?.kind == .music, "System feedback did not restore selected music")
+        Defaults[.musicLiveActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.2))
+        require(activities.current?.kind == .timer, "Disabling selected music did not fall back to timer")
+        Defaults[.musicLiveActivityEnabled] = true
+        try? await Task.sleep(for: .seconds(0.2))
+        require(activities.current?.kind == .timer, "Re-enabling music revived an invalidated resident choice")
+        activities.prefer(.music)
+        source.start(duration: 1)
+        try? await Task.sleep(for: .seconds(1.7))
+        activities.post(.musicChange)
+        require(activities.current?.kind == .timerFinished && vm.notchState == .open
+                    && IslandArtworkRenderProbe.selectedPage == .timer,
+                "Manual choice or song peek blocked the full timer completion page")
+        activities.end(.musicChange)
+        source.cancel()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(activities.current?.kind == .music && vm.notchState == .closed,
+                "Acknowledging completion did not restore selected music and collapse")
+        // Automatic alarm navigation must not silently make a later timer resident.
+        source.start(duration: 1500)
+        require(activities.current?.kind == .music, "Automatic alarm navigation overwrote the resident choice")
+        source.cancel()
+        Defaults[.remindersActivityEnabled] = true
+        activities.setReminders([ReminderTask(id: "resident-regression", title: "Task", dueDate: nil)])
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        func swipeRight() async {
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+            IslandArtworkRenderProbe.horizontalGesture?(300, 0.02, .changed)
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+            try? await Task.sleep(for: .seconds(0.2))
+        }
+        await swipeRight()
+        require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current?.kind == .reminders,
+                "Regression fixture did not select the intervening reminder activity")
+        await swipeRight()
+        require(IslandArtworkRenderProbe.selectedPage == .timer && activities.current?.kind == .reminders,
+                "Empty timer page unexpectedly created an activity")
+        require(IslandArtworkRenderProbe.startTimer != nil, "Timer page did not expose its production start action")
+        IslandArtworkRenderProbe.startTimer?(1500)
+        require(activities.current?.kind == .timer && activities.timer?.phase == .running,
+                "Starting a timer on its page left reminders resident")
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(vm.notchState == .closed && activities.current?.kind == .timer,
+                "Closing a newly started timer restored the intervening reminders page")
+        snapshot("resident-new-timer-after-reminders")
+        source.togglePause()
+        require(activities.current?.kind == .timer, "Pausing the new timer lost its resident selection")
+        activities.post(.volume, value: 0.5)
+        try? await Task.sleep(for: .seconds(1.7))
+        require(activities.current?.kind == .timer, "Feedback failed to restore the newly started resident timer")
+        print("PASS: production swipe/dot resident selection, empty-page browsing, song peek expiry, source disable, alarm override and restoration (isolated offscreen runtime)")
     }
 
     @MainActor static func artwork(size: CGFloat) -> NSImage {
@@ -281,8 +916,11 @@ enum IslandArtworkRenderProbe {
                 let left = Int((host.bounds.width - vm.notchSize.width) / 2 * scale + 24 * scale)
                 let right = width - left
                 let headerBottom = Int((max(24, vm.effectiveClosedNotchHeight) - 2) * scale)
+                let dotsRight = Int(((host.bounds.width - openNotchSize.width) / 2 + cornerRadiusInsets.opened.top + 8 + 54) * scale)
                 for y in stride(from: Int(2 * scale), to: headerBottom, by: 2) {
                     for x in stride(from: left, to: right, by: 2) {
+                        // The approved page dots occupy only the leading safe area.
+                        if x < dotsRight { continue }
                         let pixel = color(x, y)
                         require(pixel.alphaComponent > 0.99 && max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.02,
                                 "Expanded header displayed system feedback in \(filename) at (\(x), \(y))")
@@ -375,9 +1013,17 @@ enum IslandArtworkRenderProbe {
         await wait(0.65)
         let compact = capture("compact")
         vm.open()
-        await wait(0.65)
+        // First expansion creates the approved pages and native scroll controls.
+        // Establish a settled endpoint before testing intermediate frames; don't
+        // confuse their one-time layout cost with the shared animation progress.
+        for _ in 0..<90 {
+            await wait(0.016)
+            if abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 0.1,
+               abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 0.1 { break }
+        }
+        await wait(0.04)
         let expanded = capture("expanded")
-        require(compact.islandWidth > 0 && abs(expanded.islandWidth - openNotchSize.width) < 1, "Surface size probe did not measure the real layout: compact \(compact.islandWidth), expanded \(expanded.islandWidth)")
+        require(compact.islandWidth > 0 && abs(expanded.islandWidth - openNotchSize.width) < 1, "Surface size probe did not measure the real layout: compact \(compact), expanded \(expanded), layout \(IslandArtworkRenderProbe.surfaceSize)")
         require(expanded.badgeWidth > 10, "The regression must exercise a real music app badge")
         func assertSynchronized(_ frame: Frame, compactWidth: CGFloat? = nil) {
             let islandProgress = (frame.islandHeight - compact.islandHeight) / (expanded.islandHeight - compact.islandHeight)

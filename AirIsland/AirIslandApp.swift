@@ -65,6 +65,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             screenUnlockedObserver = nil
         }
         MusicManager.shared.destroy()
+        TimerActivityManager.shared.stop()
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
     }
@@ -182,6 +183,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+
+        _ = TimerActivityManager.shared
+        _ = RemindersActivityManager.shared
 
         NotificationCenter.default.addObserver(
             self,

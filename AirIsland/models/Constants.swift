@@ -47,15 +47,13 @@ extension Defaults.Keys {
         default: SliderColorEnum.white
     )
     
-    // MARK: Gestures
-    static let enableGestures = Key<Bool>("enableGestures", default: true)
-    static let closeGestureEnabled = Key<Bool>("closeGestureEnabled", default: true)
-    static let gestureSensitivity = Key<CGFloat>("gestureSensitivity", default: 200.0)
-    
     // MARK: Media playback
     static let musicLiveActivityEnabled = Key<Bool>("musicLiveActivityEnabled", default: true)
     static let enableSneakPeek = Key<Bool>("enableSneakPeek", default: false)
     static let waitInterval = Key<Double>("waitInterval", default: 3)
+    static let timerActivityEnabled = Key<Bool>("timerActivityEnabled", default: true)
+    static let remindersActivityEnabled = Key<Bool>("remindersActivityEnabled", default: false)
+    static let reminderListIdentifier = Key<String>("reminderListIdentifier", default: "")
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)
 

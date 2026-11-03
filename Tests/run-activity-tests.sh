@@ -13,8 +13,11 @@ xcrun swiftc -swift-version 5 -parse-as-library \
   -I "$TEST_LIBRARIES" -L "$TEST_LIBRARIES" -Xlinker -rpath -Xlinker "$TEST_LIBRARIES" \
   -Xlinker -rpath -Xlinker "$SHARED_FRAMEWORKS" \
   "$PROJECT_ROOT/AirIsland/Activities/IslandActivity.swift" \
+  "$PROJECT_ROOT/AirIsland/Activities/PersonalActivities.swift" \
+  "$PROJECT_ROOT/AirIsland/Presentation/IslandPager.swift" \
   "$PROJECT_ROOT/AirIsland/Scheduling/ActivityScheduler.swift" \
   "$PROJECT_ROOT/AirIsland/Presentation/IslandPresentation.swift" \
   "$PROJECT_ROOT/Tests/ActivitySchedulerTests.swift" \
+  "$PROJECT_ROOT/Tests/PersonalActivityTests.swift" \
   -o "$TEST_OUTPUT/ActivityTests"
 "$TEST_OUTPUT/ActivityTests"

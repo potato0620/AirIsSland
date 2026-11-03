@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A1A1A2000000000000000017 = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000017; };
+        A1A1A2000000000000000010 /* PersonalActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000010; };
+        A1A1A2000000000000000011 /* IslandPager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000011; };
+        A1A1A2000000000000000012 /* TimerActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000012; };
+        A1A1A2000000000000000013 /* RemindersActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000013; };
+        A1A1A2000000000000000014 /* IslandHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000014; };
+        A1A1A2000000000000000015 /* HorizontalPagingGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000015; };
+        A1A1A2000000000000000016 /* ActivityPagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000016; };
 		C0DE00020000000000000001 /* NetEaseTrackMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */; };
 		C0DE00020000000000000003 /* NetEaseTrackMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */; };
 		C0DE00010000000000000001 /* NowPlayingStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00010000000000000002 /* NowPlayingStream.swift */; };
@@ -80,7 +88,6 @@
 		B1D365D02C6A9A6C0047BDBC /* DraggableProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D365CF2C6A9A6C0047BDBC /* DraggableProgressBar.swift */; };
 		B1D6FD432C6603730015F173 /* SoftwareUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D6FD422C6603730015F173 /* SoftwareUpdater.swift */; };
 		B1F0A0022E60000100000001 /* BrightnessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0A0012E60000100000001 /* BrightnessManager.swift */; };
-		B1FEB4992C7686630066EBBC /* PanGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FEB4982C7686630066EBBC /* PanGesture.swift */; };
 		F38DE6482D8243E7008B5C6D /* BatteryActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F38DE6472D8243E2008B5C6D /* BatteryActivityManager.swift */; };
 		28D929DF6FCB0549E09D4924 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5865880C1E6FDCD7E154BEA /* VisualEffectView.swift */; };
 		A1A1A2000000000000000000 /* IslandActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000000 /* IslandActivity.swift */; };
@@ -130,6 +137,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        A1A1A1000000000000000017 = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+        A1A1A1000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Activities/PersonalActivities.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Presentation/IslandPager.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "managers/TimerActivityManager.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000013 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "managers/RemindersActivityManager.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000014 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Presentation/IslandHaptics.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000015 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "extensions/HorizontalPagingGesture.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000016 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "components/Notch/ActivityPagesView.swift"; sourceTree = "<group>"; };
 		C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetEaseTrackMetadata.swift; sourceTree = "<group>"; };
 		C0DE00010000000000000002 /* NowPlayingStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingStream.swift; sourceTree = "<group>"; };
 		111BEA602ED09B1B0079DD4E /* NSScreen+UUID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+UUID.swift"; sourceTree = "<group>"; };
@@ -195,7 +210,6 @@
 		B1D365CF2C6A9A6C0047BDBC /* DraggableProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableProgressBar.swift; sourceTree = "<group>"; };
 		B1D6FD422C6603730015F173 /* SoftwareUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareUpdater.swift; sourceTree = "<group>"; };
 		B1F0A0012E60000100000001 /* BrightnessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrightnessManager.swift; sourceTree = "<group>"; };
-		B1FEB4982C7686630066EBBC /* PanGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanGesture.swift; sourceTree = "<group>"; };
 		F38DE6472D8243E2008B5C6D /* BatteryActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryActivityManager.swift; sourceTree = "<group>"; };
 		C5865880C1E6FDCD7E154BEA /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
 		A1A1A1000000000000000000 /* IslandActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Activities/IslandActivity.swift"; sourceTree = "<group>"; };
@@ -372,6 +386,14 @@
 				1471639B2C5D362F0068B555 /* components */,
 				14CEF4152C5CAED300855D72 /* AirIslandApp.swift */,
 				A1A1A1000000000000000000 /* IslandActivity.swift */,
+                A1A1A1000000000000000010,
+                A1A1A1000000000000000017,
+                A1A1A1000000000000000011,
+                A1A1A1000000000000000012,
+                A1A1A1000000000000000013,
+                A1A1A1000000000000000014,
+                A1A1A1000000000000000015,
+                A1A1A1000000000000000016,
 				A1A1A1000000000000000001 /* ActivityScheduler.swift */,
 				A1A1A1000000000000000002 /* ActivityCoordinator.swift */,
 				A1A1A1000000000000000008 /* IslandBackdrop.swift */,
@@ -459,7 +481,6 @@
 				B1B112922C6A577E00093D8F /* MouseTracker.swift */,
 				B1CE8CFD2C6F659400DD9871 /* KeyboardShortcutsHelper.swift */,
 				B10348D82C74E56000475897 /* ConditionalModifier.swift */,
-				B1FEB4982C7686630066EBBC /* PanGesture.swift */,
 				B1C448952C9712C4001F0858 /* ActionBar.swift */,
 			);
 			path = extensions;
@@ -650,6 +671,7 @@
 				14CEF41A2C5CAED400855D72 /* Assets.xcassets in Resources */,
 				112B0EB92E30DD0F00562D6C /* mediaremote-adapter.pl in Resources */,
 				B17266E12C6532560031BA0D /* Localizable.xcstrings in Resources */,
+                A1A1A2000000000000000017,
 				14A7E5972C65FD31008C1BE9 /* Welcome.m4a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -715,6 +737,13 @@
 				11CFC6652E09C7B300748C80 /* OnboardingFinishView.swift in Sources */,
 				507266DB2C908E2E00A2D00D /* HoverButton.swift in Sources */,
 				A1A1A2000000000000000000 /* IslandActivity.swift in Sources */,
+                A1A1A2000000000000000010,
+                A1A1A2000000000000000011,
+                A1A1A2000000000000000012,
+                A1A1A2000000000000000013,
+                A1A1A2000000000000000014,
+                A1A1A2000000000000000015,
+                A1A1A2000000000000000016,
 				A1A1A2000000000000000001 /* ActivityScheduler.swift in Sources */,
 				A1A1A2000000000000000002 /* ActivityCoordinator.swift in Sources */,
 				A1A1A2000000000000000008 /* IslandBackdrop.swift in Sources */,
@@ -727,7 +756,6 @@
 				B10348D92C74E56000475897 /* ConditionalModifier.swift in Sources */,
 				11F748682EC9AC9600F841DB /* AirIslandHelperProtocol.swift in Sources */,
 				11F748692EC9AC9600F841DB /* XPCHelperClient.swift in Sources */,
-				B1FEB4992C7686630066EBBC /* PanGesture.swift in Sources */,
 				112FB7352CCF16F70015238C /* NotchSpaceManager.swift in Sources */,
 				1153BD982D9881F900979FB0 /* AppleScriptHelper.swift in Sources */,
 				14288DDC2C6E015000B9F80C /* AudioPlayer.swift in Sources */,

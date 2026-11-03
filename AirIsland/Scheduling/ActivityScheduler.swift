@@ -11,6 +11,14 @@ struct ActivityScheduler {
 
     private var entries: [IslandActivityKind: Entry] = [:]
     private var sequence: UInt64 = 0
+    private var preferredKind: IslandActivityKind?
+
+    /// Manual page selection only changes the resident activity, never transient arbitration.
+    mutating func prefer(_ kind: IslandActivityKind, at now: TimeInterval) {
+        expire(at: now)
+        guard Self.isPersistent(kind), entries[kind] != nil else { return }
+        preferredKind = kind
+    }
 
     mutating func submit(_ activity: IslandActivity, at now: TimeInterval) {
         expire(at: now)
@@ -28,6 +36,7 @@ struct ActivityScheduler {
 
     mutating func end(_ kind: IslandActivityKind) {
         entries[kind] = nil
+        if preferredKind == kind { preferredKind = nil }
     }
 
     mutating func expire(at now: TimeInterval) {
@@ -35,22 +44,40 @@ struct ActivityScheduler {
     }
 
     func current(at now: TimeInterval) -> IslandActivity? {
-        entries.values.filter { $0.expiresAt.map { $0 > now } ?? true }
+        let automatic = entries.values.filter { $0.expiresAt.map { $0 > now } ?? true }
             .max {
                 let lhs = Self.priority(for: $0.activity.kind)
                 let rhs = Self.priority(for: $1.activity.kind)
                 return lhs == rhs ? $0.sequence < $1.sequence : lhs < rhs
             }?.activity
+        guard let automatic, Self.isPersistent(automatic.kind),
+              let preferredKind, let preferred = activity(preferredKind, at: now) else { return automatic }
+        return preferred
     }
 
     var nextExpiry: TimeInterval? { entries.values.compactMap(\.expiresAt).min() }
 
+    func activity(_ kind: IslandActivityKind, at now: TimeInterval) -> IslandActivity? {
+        guard let entry = entries[kind], entry.expiresAt.map({ $0 > now }) ?? true else { return nil }
+        return entry.activity
+    }
+
     private static func priority(for kind: IslandActivityKind) -> Int {
         switch kind {
+        case .timerFinished: return 110
+        case .timer: return 30
+        case .reminders: return 5
         case .power: return 80
-        case .musicChange: return 60
+        case .musicChange: return 100
         case .music: return 10
         case .volume, .brightness, .backlight, .mic: return 100
+        }
+    }
+
+    private static func isPersistent(_ kind: IslandActivityKind) -> Bool {
+        switch kind {
+        case .music, .timer, .reminders: return true
+        case .timerFinished, .power, .musicChange, .volume, .brightness, .backlight, .mic: return false
         }
     }
 
@@ -58,7 +85,7 @@ struct ActivityScheduler {
         switch kind {
         case .volume, .brightness, .backlight, .mic: return 1.5
         case .power, .musicChange: return 3
-        case .music: return nil
+        case .music, .timer, .timerFinished, .reminders: return nil
         }
     }
 }

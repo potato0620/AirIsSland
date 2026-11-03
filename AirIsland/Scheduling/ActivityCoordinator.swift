@@ -8,12 +8,20 @@ final class ActivityCoordinator: ObservableObject {
     static let shared = ActivityCoordinator()
 
     @Published private(set) var current: IslandActivity?
+    @Published private(set) var timer: TimerSession?
+    @Published private(set) var reminders: [ReminderTask] = []
     private var scheduler = ActivityScheduler()
     private var expiryTask: Task<Void, Never>?
     private var preferences = Set<AnyCancellable>()
     private var musicIsActive = false
 
     private init() {
+        Defaults.publisher(.timerActivityEnabled).sink { [weak self] _ in
+            Task { @MainActor in if !Defaults[.timerActivityEnabled] { self?.setTimer(nil) } }
+        }.store(in: &preferences)
+        Defaults.publisher(.remindersActivityEnabled).sink { [weak self] _ in
+            Task { @MainActor in if !Defaults[.remindersActivityEnabled] { self?.setReminders([]) } }
+        }.store(in: &preferences)
         Defaults.publisher(.musicLiveActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in self?.refreshMusic() }
         }.store(in: &preferences)
@@ -53,6 +61,41 @@ final class ActivityCoordinator: ObservableObject {
 
     func end(_ kind: IslandActivityKind) {
         scheduler.end(kind)
+        refresh()
+    }
+
+    func prefer(_ kind: IslandActivityKind) {
+        scheduler.prefer(kind, at: now)
+        refresh()
+    }
+
+    func setTimer(_ session: TimerSession?) {
+        let session = Defaults[.timerActivityEnabled] ? session : nil
+        let previous = timer
+        timer = session
+        if let session {
+            if session.phase == .finished {
+                // Completion needs acknowledgement; never restore a compact "ended" timer.
+                scheduler.end(.timer)
+                if previous?.id != session.id || previous?.phase != .finished {
+                    scheduler.submit(IslandActivity(kind: .timerFinished, timer: session), at: now)
+                }
+            } else {
+                scheduler.submit(IslandActivity(kind: .timer, timer: session), at: now)
+                scheduler.end(.timerFinished)
+            }
+        } else {
+            scheduler.end(.timer)
+            scheduler.end(.timerFinished)
+        }
+        refresh()
+    }
+
+    func setReminders(_ tasks: [ReminderTask]) {
+        let tasks = Defaults[.remindersActivityEnabled] ? tasks : []
+        reminders = tasks
+        if tasks.isEmpty { scheduler.end(.reminders) }
+        else { scheduler.submit(IslandActivity(kind: .reminders, reminders: tasks), at: now) }
         refresh()
     }
 

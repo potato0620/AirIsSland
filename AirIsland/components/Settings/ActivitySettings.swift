@@ -3,31 +3,83 @@ import SwiftUI
 
 /// Add future approved activities here without adding another top-level settings tab.
 enum ActivitySettingsPage: String, CaseIterable, Identifiable {
-    case music, feedback
+    case music, reminders, timer, feedback
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
         case .music: return "Media"
         case .feedback: return "System Feedback"
+        case .reminders: return "Reminders"
+        case .timer: return "Timer"
         }
     }
     var symbol: String {
         switch self {
         case .music: return "music.note"
         case .feedback: return "dial.medium.fill"
+        case .reminders: return "checklist"
+        case .timer: return "timer"
         }
     }
     var summary: LocalizedStringKey {
         switch self {
         case .music: return "Now playing and essential playback controls."
         case .feedback: return "Brief feedback for system adjustments and power changes."
+        case .reminders: return "Sync incomplete tasks from Apple Reminders lists."
+        case .timer: return "Countdowns with a reminder when time is up."
         }
     }
     @ViewBuilder var destination: some View {
         switch self {
         case .music: MusicActivitySettings()
         case .feedback: SystemFeedbackSettings()
+        case .reminders: RemindersActivitySettings()
+        case .timer: TimerActivitySettings()
         }
+    }
+}
+
+struct TimerActivitySettings: View {
+    var body: some View {
+        Form {
+            Section {
+                Defaults.Toggle(key: .timerActivityEnabled) { Text("Enable timer") }
+            } footer: {
+                Text("Turning off the timer cancels the current countdown.")
+            }
+        }
+    }
+}
+
+struct RemindersActivitySettings: View {
+    @ObservedObject private var source = RemindersActivityManager.shared
+    @Default(.remindersActivityEnabled) private var enabled
+    @Default(.reminderListIdentifier) private var listIdentifier
+    var body: some View {
+        Form {
+            Section {
+                Defaults.Toggle(key: .remindersActivityEnabled) { Text("Sync Apple Reminders") }
+                if source.authorized && enabled {
+                    Picker("Show list", selection: $listIdentifier) {
+                        Text("All tasks").tag("")
+                        ForEach(source.lists) { list in Text(list.displayTitle).tag(list.id) }
+                        if !listIdentifier.isEmpty && !source.lists.contains(where: { $0.id == listIdentifier }) {
+                            Text("Selected list unavailable").tag(listIdentifier)
+                        }
+                    }
+                    if let error = source.errorMessage {
+                        Text(error).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(source.authorized ? LocalizedStringKey("Reminders access granted") : LocalizedStringKey("Reminders access not granted"))
+                    .foregroundStyle(.secondary)
+                Button(source.accessDenied ? LocalizedStringKey("Open Privacy Settings") : LocalizedStringKey("Connect Reminders")) {
+                    if source.accessDenied { source.openPrivacySettings() }
+                    else { Task { await source.connect() } }
+                }.disabled(source.requesting)
+            }
+        }
+        .task { source.refresh() }
     }
 }
 

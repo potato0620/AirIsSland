@@ -22,6 +22,24 @@ for field in ['albumArtTrackIdentifier', 'albumArtFlipDirection', 'isChangingTra
     s = s.replace('@Published private(set) var ' + field, '@Published var ' + field)
 s = s.replace('private func updateFromPlaybackState(', 'func updateFromPlaybackState(')
 p.write_text(s)
+p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
+s = p.read_text()
+token = 'TimerDurationForm(start: startTimer)'
+assert token in s
+s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = startTimer }')
+token = '.buttonStyle(IslandActionButtonStyle(tint: tint, iconOnly: true))'
+assert token in s
+p.write_text(s.replace(token, token + '''.background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                        IslandArtworkRenderProbe.actionFrames[icon] = frame
+                    }
+                }
+            }'''))
+p = check / 'AirIsland/managers/RemindersActivityManager.swift'
+s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func connect()', start)
+s = s[:start] + '    private init() {}\n' + s[end:]
+p.write_text(s.replace('@Published private(set)', '@Published'))
 p = check / 'AirIsland/IslandWindowCoordinator.swift'
 s = p.read_text(); start = s.index('    private init() {')
 p.write_text(s[:start] + '    private init() {}\n}\n')
@@ -34,6 +52,16 @@ for p in (check / 'AirIsland').rglob('*.swift'):
     p.write_text(s)
 p = check / 'AirIsland/ContentView.swift'
 s = p.read_text()
+token = '.onChange(of: vm.notchState)'
+assert token in s
+s = s.replace(token, '''.onAppear {
+                        IslandArtworkRenderProbe.selectPage = selectPage
+                        IslandArtworkRenderProbe.horizontalGesture = handleHorizontalGesture
+                    }
+                    .onChange(of: pager.selection, initial: true) { _, page in
+                        IslandArtworkRenderProbe.selectedPage = page
+                    }
+                    ''' + token)
 token = '.clipShape(NotchShape(topCornerRadius: top, bottomCornerRadius: bottom))'
 assert token in s
 s = s.replace(token, '''.background {
@@ -41,6 +69,9 @@ s = s.replace(token, '''.background {
                     Color.clear.onChange(of: proxy.size, initial: true) { _, size in
                         IslandArtworkRenderProbe.surfaceSize = size
                     }
+                .onChange(of: pagePosition, initial: true) { _, position in
+                    IslandArtworkRenderProbe.renderedPagePosition = position
+                }
                 }
             }
             ''' + token)
@@ -65,4 +96,4 @@ if ! xcodebuild "${ARTWORK_BUILD_ARGS[@]}" \
   tail -80 "$CHECK_ROOT/build.log"
   exit 1
 fi
-"$CHECK_DERIVED_DATA/Build/Products/Release/AirIsland.app/Contents/MacOS/AirIsland" "$CHECK_ROOT/frames"
+"$CHECK_DERIVED_DATA/Build/Products/Release/AirIsland.app/Contents/MacOS/AirIsland" "$CHECK_ROOT/frames" "$@"

@@ -26,9 +26,9 @@ struct ContentView: View {
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
 
-    @State private var gestureProgress: CGFloat = .zero
-
-    @State private var haptics: Bool = false
+    @State private var pager = IslandPager()
+    @State private var pagePosition: CGFloat = 0
+    @State private var musicPageHasEntered = true
     @State private var measuredCompactWidth: CGFloat = 0
 
     @ObservedObject private var activities = ActivityCoordinator.shared
@@ -45,7 +45,7 @@ struct ContentView: View {
 
     private var showsArtwork: Bool {
         if vm.notchState == .open {
-            return !coordinator.firstLaunch && !musicManager.songTitle.isEmpty
+            return musicPageHasEntered && !coordinator.firstLaunch && !musicManager.songTitle.isEmpty
         }
         return presentation.showsMusic && !vm.hideOnClosed
     }
@@ -58,13 +58,6 @@ struct ContentView: View {
     }
 
     var body: some View {
-        // Calculate scale based on gesture progress only
-        let gestureScale: CGFloat = {
-            guard gestureProgress != 0 else { return 1.0 }
-            let scaleFactor = 1.0 + gestureProgress * 0.01
-            return max(0.6, scaleFactor)
-        }()
-        
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 let mainLayout = CompactNotchLayout()
@@ -92,11 +85,12 @@ struct ContentView: View {
                         expandedSize: openNotchSize,
                         expandedLeadingInset: expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding,
                         expandedContent: ExpandedNotchLayout(),
+                        pagePosition: pagePosition,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
                         scalesCorners: Defaults[.cornerRadiusScaling], artwork: musicManager.albumArt,
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork,
                         showsAmbience: vm.notchState == .open
-                            && musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
+                            && pager.selection == .music && musicManager.isPlaybackActive && !musicManager.songTitle.isEmpty && Defaults[.lightingEffect]
                     ))
                     .animation(islandAnimation, value: vm.notchState)
                     .animation(islandAnimation, value: measuredCompactWidth)
@@ -118,26 +112,38 @@ struct ContentView: View {
                     .onTapGesture {
                         doOpen()
                     }
-                    .conditionalModifier(Defaults[.enableGestures]) { view in
-                        view
-                            .panGesture(direction: .down) { translation, phase in
-                                handleDownGesture(translation: translation, phase: phase)
+                    .onChange(of: activities.current, initial: true) { previous, current in
+                        if IslandPresentation(activity: current).requiresExpandedTimer {
+                            hoverTask?.cancel()
+                            showOpeningPage(.timer)
+                            withAnimation(islandAnimation) { vm.open() }
+                        } else if IslandPresentation(activity: previous).requiresExpandedTimer {
+                            hoverTask?.cancel()
+                            withAnimation(islandAnimation) {
+                                isHovering = false
+                                vm.close()
                             }
-                    }
-                    .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
-                        view
-                            .panGesture(direction: .up) { translation, phase in
-                                handleUpGesture(translation: translation, phase: phase)
-                            }
+                        }
                     }
                     .onChange(of: vm.notchState) { _, newState in
+                        if newState == .open {
+                            let page: IslandPage
+                            switch activities.current?.kind {
+                            case .timer, .timerFinished: page = .timer
+                            case .reminders: page = .reminders
+                            case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power, .none: page = .music
+                            }
+                            showOpeningPage(page)
+                        } else { vm.isEditingActivity = false }
                         if newState == .closed && isHovering {
                             withAnimation(islandAnimation) {
                                 isHovering = false
                             }
                         }
                     }
-                    .sensoryFeedback(.alignment, trigger: haptics)
+                    .onChange(of: vm.isEditingActivity) { _, editing in
+                        if !editing && !isHovering { handleHover(false) }
+                    }
                     .contextMenu {
                         Button("Settings") {
                             DispatchQueue.main.async {
@@ -151,13 +157,6 @@ struct ContentView: View {
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
         .compositingGroup()
-        .scaleEffect(
-            x: gestureScale,
-            y: gestureScale,
-            anchor: .top
-        )
-        // Animate presentation changes, never artwork resolution or playback progress.
-        .animation(islandAnimation, value: gestureProgress)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
     }
@@ -180,30 +179,34 @@ struct ContentView: View {
                     if presentation == .power
                         && Defaults[.showPowerStatusNotifications]
                     {
-                        HStack(spacing: 0) {
-                            HStack {
-                                Text(batteryModel.statusText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white)
-                            }
-
-                            Color.clear
-                                .frame(width: vm.closedNotchSize.width + 10)
-
-                            HStack {
-                                BatteryView(
-                                    levelBattery: batteryModel.levelBattery,
-                                    isPluggedIn: batteryModel.isPluggedIn,
-                                    isCharging: batteryModel.isCharging,
-                                    isInLowPowerMode: batteryModel.isInLowPowerMode,
-                                    batteryWidth: 30
-                                )
-                            }
-                            .frame(width: 76, alignment: .trailing)
+                        CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
+                            Text(batteryModel.statusText)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            BatteryView(
+                                levelBattery: batteryModel.levelBattery,
+                                isPluggedIn: batteryModel.isPluggedIn,
+                                isCharging: batteryModel.isCharging,
+                                isInLowPowerMode: batteryModel.isInLowPowerMode,
+                                batteryWidth: 30
+                            )
                         }
-                        .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+                      } else if presentation == .timer(finished: false), let timer = activities.current?.timer {
+                          TimelineView(.periodic(from: .now, by: 1)) { context in
+                              CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
+                                  Image(systemName: "timer").foregroundStyle(.orange)
+                                  Text(timerText(timer.remaining(at: context.date)))
+                                      .font(.caption).monospacedDigit().foregroundStyle(.orange)
+                              }
+                          }
+                      } else if presentation == .reminders {
+                          CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
+                              Image(systemName: "checklist").foregroundStyle(.blue)
+                              Text("\(activities.reminders.count) tasks").font(.caption).foregroundStyle(.blue).lineLimit(1)
+                          }
                       } else if presentation.feedback != nil {
-                          InlineHUD(type: activities.current?.kind ?? .volume, value: Binding(get: { activities.current?.value ?? 0 }, set: { activities.updateFeedbackValue($0) }), icon: activities.current?.icon ?? "", hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
+                          InlineHUD(type: activities.current?.kind ?? .volume, value: Binding(get: { activities.current?.value ?? 0 }, set: { activities.updateFeedbackValue($0) }), icon: activities.current?.icon ?? "", hoverAnimation: $isHovering)
                               .transition(.opacity)
                       } else if presentation.showsMusic && !vm.hideOnClosed {
                           MusicLiveActivity()
@@ -224,15 +227,81 @@ struct ContentView: View {
 
     private func ExpandedNotchLayout() -> some View {
         VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
-            Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+            HStack(spacing: 0) {
+                ForEach(IslandPage.allCases) { page in
+                    Button { selectPage(page) } label: {
+                        Circle()
+                            .fill(page == .timer && activities.timer?.phase == .finished ? Color.orange : pager.selection == page ? Color.white : Color.gray.opacity(0.6))
+                            .frame(width: 5, height: 5).frame(width: 18, height: 24)
+                    }
+                    .buttonStyle(.plain).accessibilityLabel(Text(page.title))
+                    .accessibilityAddTraits(pager.selection == page ? .isSelected : [])
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, expandedHorizontalInset + 8)
+            .frame(height: max(24, vm.effectiveClosedNotchHeight))
             if vm.notchState == .open {
-                NotchHomeView()
-                    .transition(.opacity)
-                    .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
+                HStack(spacing: 0) {
+                    expandedPage(.music) { NotchHomeView() }
+                    expandedPage(.reminders) { RemindersActivityPage(active: pager.selection == .reminders) }
+                    expandedPage(.timer) { TimerActivityPage(active: pager.selection == .timer) }
+                }
+                    .offset(x: -pagePosition * openNotchSize.width)
+                    .frame(width: openNotchSize.width, alignment: .leading)
+                    .clipped()
+                    .background {
+                        HorizontalPagingGesture(action: handleHorizontalGesture)
+                    }
             }
         }
-        .padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
         .padding(.bottom, MusicPlayerImageSizes.panelPadding)
+    }
+
+    private func expandedPage<Content: View>(_ page: IslandPage, @ViewBuilder content: () -> Content) -> some View {
+        content().padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
+            .frame(width: openNotchSize.width)
+            .accessibilityHidden(pager.selection != page)
+            .allowsHitTesting(pager.selection == page)
+            .disabled(pager.selection != page)
+    }
+
+    private func selectPage(_ page: IslandPage) {
+        activities.prefer(page.activityKind)
+        guard page != pager.selection else { return }
+        vm.isEditingActivity = false
+        if page == .music { musicPageHasEntered = true }
+        pager.select(page)
+        withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(page.rawValue) }
+        IslandHaptics.alignment()
+    }
+
+    private func showOpeningPage(_ page: IslandPage) {
+        musicPageHasEntered = page == .music
+        if pager.selection != page {
+            pager.select(page)
+            pagePosition = CGFloat(page.rawValue)
+        }
+    }
+
+    private func handleHorizontalGesture(_ delta: Double, _ seconds: Double, _ phase: NSEvent.Phase) {
+        guard vm.notchState == .open, !vm.isEditingActivity else { return }
+        if phase == .began { musicPageHasEntered = true; pager.begin() }
+        else if phase == .changed {
+            if let page = pager.drag(delta: delta / openNotchSize.width, seconds: seconds) {
+                activities.prefer(page.activityKind)
+                withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(page.rawValue) }
+                IslandHaptics.alignment()
+            } else {
+                guard pagePosition != CGFloat(pager.position) else { return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { pagePosition = CGFloat(pager.position) }
+            }
+        } else if phase == .ended {
+            pager.end()
+            withAnimation(IslandAnimations.pageReturn(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
+        }
     }
 
     @ViewBuilder
@@ -278,7 +347,7 @@ struct ContentView: View {
                         .fill(
                             Color(nsColor: musicManager.avgColor).gradient
                         )
-                        .frame(width: 50, alignment: .center)
+                        .frame(width: 16, height: 12)
                         .mask {
                             AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && vm.notchState == .closed))
                                 .frame(width: 16, height: 12)
@@ -289,13 +358,12 @@ struct ContentView: View {
                 width: max(
                     0,
                     vm.effectiveClosedNotchHeight - 12
-                        + gestureProgress / 2
                 ),
                 height: max(
                     0,
                     vm.effectiveClosedNotchHeight - 12
                 ),
-                alignment: .center
+                alignment: .trailing
             )
         }
         .frame(
@@ -305,6 +373,7 @@ struct ContentView: View {
     }
 
     private func doOpen() {
+        guard vm.notchState == .closed else { return }
         vm.open()
     }
 
@@ -319,9 +388,7 @@ struct ContentView: View {
                 isHovering = true
             }
             
-            if vm.notchState == .closed && Defaults[.enableHaptics] {
-                haptics.toggle()
-            }
+            if vm.notchState == .closed { IslandHaptics.alignment() }
             
             guard vm.notchState == .closed,
                   presentation.feedback == nil,
@@ -349,7 +416,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open {
+                    if self.vm.notchState == .open && !self.vm.isEditingActivity {
                         self.vm.close()
                     }
                 }
@@ -357,55 +424,31 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Gesture Handling
+}
 
-    private func handleDownGesture(translation: CGFloat, phase: NSEvent.Phase) {
-        guard vm.notchState == .closed else { return }
+/// Align visible content to the shared outer padding. Balanced, intrinsic side
+/// widths keep the physical notch centered even when one label is much longer.
+private struct CompactActivityLayout: Layout {
+    let notchWidth: CGFloat
+    let height: CGFloat
+    private let spacing: CGFloat = 8
 
-        if phase == .ended {
-            withAnimation(islandAnimation) { gestureProgress = .zero }
-            return
-        }
-
-        withAnimation(islandAnimation) {
-            gestureProgress = (translation / Defaults[.gestureSensitivity]) * 20
-        }
-
-        if translation > Defaults[.gestureSensitivity] {
-            if Defaults[.enableHaptics] {
-                haptics.toggle()
-            }
-            withAnimation(islandAnimation) {
-                gestureProgress = .zero
-            }
-            doOpen()
-        }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let side = sideWidth(subviews)
+        return CGSize(width: max(0, notchWidth) + 2 * (side + spacing), height: max(0, height))
     }
 
-    private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
-        guard vm.notchState == .open else { return }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let contentProposal = ProposedViewSize(width: sideWidth(subviews), height: height)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: contentProposal)
+        subviews[1].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: contentProposal)
+    }
 
-        withAnimation(islandAnimation) {
-            gestureProgress = (translation / Defaults[.gestureSensitivity]) * -20
-        }
-
-        if phase == .ended {
-            withAnimation(islandAnimation) {
-                gestureProgress = .zero
-            }
-        }
-
-        if translation > Defaults[.gestureSensitivity] {
-            withAnimation(islandAnimation) {
-                isHovering = false
-            }
-            gestureProgress = .zero
-            vm.close()
-
-            if Defaults[.enableHaptics] {
-                haptics.toggle()
-            }
-        }
+    private func sideWidth(_ subviews: Subviews) -> CGFloat {
+        let ideal = subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let maximum = max(0, (openNotchSize.width - 2 * cornerRadiusInsets.closed.bottom - max(0, notchWidth)) / 2 - spacing)
+        return min(ideal, maximum)
     }
 }
 
@@ -419,6 +462,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let expandedSize: CGSize
     let expandedLeadingInset: CGFloat
     let expandedContent: ExpandedContent
+    var pagePosition: CGFloat
     let keepsCompactVisible: Bool
     let scalesCorners: Bool
     let artwork: NSImage
@@ -426,12 +470,13 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let showsArtwork: Bool
     let showsAmbience: Bool
 
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(expansion, AnimatablePair(compactWidth, closedSurfaceHeight)) }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>> {
+        get { AnimatablePair(expansion, AnimatablePair(compactWidth, AnimatablePair(closedSurfaceHeight, pagePosition))) }
         set {
             expansion = newValue.first
             compactWidth = newValue.second.first
-            closedSurfaceHeight = newValue.second.second
+            closedSurfaceHeight = newValue.second.second.first
+            pagePosition = newValue.second.second.second
         }
     }
 
@@ -460,6 +505,9 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
                 AlbumArtPresentation(vm: vm, expansion: expansion, closedHeight: closedHeight,
                                      expandedLeadingInset: expandedLeadingInset,
                                      scalesCorners: scalesCorners, isArtworkPaused: isArtworkPaused)
+                    .animation(nil) { artwork in
+                        artwork.offset(x: -pagePosition * expandedSize.width * expansion)
+                    }
                     .opacity(showsArtwork ? 1 : 0)
                     .allowsHitTesting(vm.notchState == .open && showsArtwork)
                     .accessibilityHidden(!showsArtwork)
