@@ -71,7 +71,31 @@ final class ActivitySchedulerTests: XCTestCase {
         scheduler.prefer(.timer, at: 4)
         XCTAssertEqual(scheduler.current(at: 4)?.kind, .timer)
         scheduler.prefer(.reminders, at: 4)
-        XCTAssertEqual(scheduler.current(at: 4)?.kind, .reminders)
+        XCTAssertEqual(scheduler.current(at: 4)?.kind, .timer)
+    }
+
+    func testReminderDataNeverCreatesOrReplacesResidentActivity() {
+        var scheduler = ActivityScheduler()
+        let tasks = [ReminderTask(id: "task", title: "Task", dueDate: nil)]
+        scheduler.submit(IslandActivity(kind: .reminders, reminders: tasks), at: 0)
+        scheduler.prefer(.reminders, at: 0)
+        XCTAssertNil(scheduler.current(at: 0))
+        XCTAssertNil(scheduler.nextExpiry)
+        XCTAssertEqual(scheduler.activity(.reminders, at: 0)?.reminders, tasks)
+        scheduler.submit(IslandActivity(kind: .music), at: 1)
+        scheduler.submit(IslandActivity(kind: .timer), at: 1)
+        scheduler.prefer(.music, at: 1)
+        scheduler.prefer(.reminders, at: 2)
+        XCTAssertEqual(scheduler.current(at: 2)?.kind, .music)
+        scheduler.end(.music)
+        XCTAssertEqual(scheduler.current(at: 3)?.kind, .timer)
+        scheduler.end(.timer)
+        XCTAssertNil(scheduler.current(at: 3))
+        scheduler.submit(IslandActivity(kind: .volume), at: 4)
+        XCTAssertEqual(scheduler.current(at: 4)?.kind, .volume)
+        scheduler.expire(at: 6)
+        XCTAssertNil(scheduler.current(at: 6))
+        XCTAssertEqual(scheduler.activity(.reminders, at: 6)?.reminders.count, 1)
     }
 
     func testEveryTransientPreemptsManualResidentThenRestoresIt() {
@@ -138,7 +162,8 @@ final class ActivitySchedulerTests: XCTestCase {
         scheduler.prefer(.reminders, at: 0)
         let tasks = [ReminderTask(id: "task", title: "Updated", dueDate: nil)]
         scheduler.submit(IslandActivity(kind: .reminders, reminders: tasks), at: 1)
-        XCTAssertEqual(scheduler.current(at: 1)?.reminders, tasks)
+        XCTAssertEqual(scheduler.activity(.reminders, at: 1)?.reminders, tasks)
+        XCTAssertEqual(scheduler.current(at: 1)?.kind, .timer)
         scheduler.submit(IslandActivity(kind: .musicChange), at: 2)
         scheduler.end(.reminders)
         XCTAssertEqual(scheduler.current(at: 2)?.kind, .musicChange)
@@ -217,7 +242,7 @@ final class ActivitySchedulerTests: XCTestCase {
             } else if kind == .timer || kind == .timerFinished {
                 XCTAssertEqual(presentation, .timer(finished: kind == .timerFinished))
             } else if kind == .reminders {
-                XCTAssertEqual(presentation, .reminders)
+                XCTAssertEqual(presentation, .idle)
             } else {
                 XCTAssertTrue(presentation.showsMusic)
                 XCTAssertEqual(presentation.showsMusicPeek, kind == .musicChange)

@@ -52,6 +52,7 @@ private struct ActionButtonSizes: PreferenceKey {
             Defaults[.cornerRadiusScaling] = true
             Defaults[.enableHaptics] = false
             Defaults[.remindersActivityEnabled] = false
+            verifyDisplayWidths()
             let music = MusicManager.shared
             music.songTitle = "Deep Green"
             music.artistName = "Christian Kuria"
@@ -71,6 +72,8 @@ private struct ActionButtonSizes: PreferenceKey {
             }
             if CommandLine.arguments.contains("--compact-only") {
                 await verifyCompactAlignment(output: output)
+                await verifyWidthAdjustment(output: output)
+                await renderSizingSettings(output: output)
                 exit(0)
             }
             if CommandLine.arguments.contains("--personal-only") {
@@ -94,6 +97,14 @@ private struct ActionButtonSizes: PreferenceKey {
                     await verify(screen: screen, name: "screen\(index)-light\(lighting)", output: output)
                 }
             }
+            for screen in NSScreen.screens where screen.safeAreaInsets.top == 0 {
+                for percent: CGFloat in [5, 10] {
+                    Defaults[.nonNotchWidthPercentage] = percent
+                    await verify(screen: screen, name: "non-notch-\(Int(percent))-percent", output: output)
+                }
+            }
+            Defaults[.nonNotchWidthPercentage] = NonNotchWidth.defaultPercentage
+            await verifyWidthAdjustment(output: output)
             Defaults[.lightingEffect] = false
             await verifyPausedArtwork(output: output)
             await verifyPausedArtwork(output: output, changing: true)
@@ -290,8 +301,8 @@ private struct ActionButtonSizes: PreferenceKey {
         require(automatic >= 8, "Alarm animation stopped inside the automatically expanded island")
         require(vm.notchState == .open && IslandArtworkRenderProbe.selectedPage == .timer
                     && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
-                    && abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 1
-                    && abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 1,
+                    && abs(IslandArtworkRenderProbe.surfaceSize.width - vm.expandedNotchSize.width) < 1
+                    && abs(IslandArtworkRenderProbe.surfaceSize.height - vm.expandedNotchSize.height) < 1,
                 "Pending completion did not automatically use the full timer page")
         let expanded = await frames(ContentView(), name: "expanded", prepare: { vm.open() })
         require(expanded >= 8, "Alarm animation stopped inside the expanded island")
@@ -303,6 +314,109 @@ private struct ActionButtonSizes: PreferenceKey {
         require(inactive == 1, "An inactive timer page kept animating its alarm")
     }
 
+    @MainActor static func verifyDisplayWidths() {
+        let original = Defaults[.nonNotchWidthPercentage]
+        defer {
+            Defaults[.nonNotchWidthPercentage] = original
+        }
+        for (screen, percent, expected): (CGFloat, CGFloat, CGFloat) in [
+            (800, 10, 120), (1440, 10, 144), (1920, 10, 192),
+            (2560, 10, 256), (5120, 10, 320), (1440, 20, 144),
+            (1920, 5, 120), (1920, 100, 192), (1920, -1, 120),
+            (1920, .nan, 192)
+        ] {
+            require(abs(NonNotchWidth.resolve(screenWidth: screen, percentage: percent) - expected) < 0.01,
+                    "Incorrect proportional width for screen \(screen), percentage \(percent)")
+        }
+        for (base, screen, expected): (CGFloat, CGFloat, CGFloat) in [
+            (120, 1920, 400), (192, 1920, 480), (256, 2560, 640),
+            (320, 2560, 800), (320, 800, 760), (320, 300, 260), (500, 2560, 960)
+        ] {
+            require(abs(ExpandedNotchWidth.resolve(baseWidth: base, screenWidth: screen) - expected) < 0.01,
+                    "Expanded width ignored its base, fixed multiplier or screen boundary")
+        }
+        for percent: CGFloat in [5, 10, 20] {
+            Defaults[.nonNotchWidthPercentage] = percent
+            for screen in NSScreen.screens {
+                let size = getClosedNotchSize(screenUUID: screen.displayUUID)
+                let expanded = getExpandedNotchSize(baseWidth: size.width, screenUUID: screen.displayUUID)
+                if screen.safeAreaInsets.top == 0 {
+                    let expected = min(320, max(120, screen.frame.width * min(10, max(5, percent)) / 100))
+                    require(abs(size.width - expected) < 0.01, "Width used a different display or ignored its preference")
+                    require(abs(expanded.width - min(screen.frame.width - 40, min(960, max(400, expected * 2.5)))) < 0.01,
+                            "Expanded width used a different display or ignored its multiplier")
+                } else if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+                    require(abs(size.width - (screen.frame.width - left.width - right.width + 4)) < 0.01,
+                            "Proportional sizing changed a physical notch")
+                    require(expanded == CGSize(width: 480, height: 190), "Non-notch preferences resized a notched display")
+                }
+            }
+        }
+        print("PASS: proportional width, limits, persisted preference and per-display sizing")
+    }
+
+    @MainActor static func renderSizingSettings(output: URL) async {
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 720, height: 980),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: PresentationSettings().formStyle(.grouped)
+            .environment(\.locale, Locale(identifier: "zh-Hans")))
+        window.contentView = host
+        window.orderBack(nil)
+        try? await Task.sleep(for: .seconds(0.2))
+        host.layoutSubtreeIfNeeded()
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("proportional-width-settings.png"))
+        window.orderOut(nil)
+        window.contentView = nil
+    }
+
+    @MainActor static func verifyWidthAdjustment(output: URL) async {
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top == 0 }) else { return }
+        let originalPercentage = Defaults[.nonNotchWidthPercentage]
+        defer {
+            Defaults[.nonNotchWidthPercentage] = originalPercentage
+        }
+        Defaults[.nonNotchWidthPercentage] = 5
+        Defaults[.lightingEffect] = true
+        ActivityCoordinator.shared.setMusicActive(true)
+        let vm = IslandViewModel(screenUUID: screen.displayUUID)
+        defer { vm.destroy() }
+        vm.hideOnClosed = false
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 210),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        let initial = IslandArtworkRenderProbe.surfaceSize.width
+        Defaults[.nonNotchWidthPercentage] = 20
+        vm.closedNotchSize = getClosedNotchSize(screenUUID: screen.displayUUID)
+        let target = vm.expandedNotchSize.width
+        var intermediates = 0
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .seconds(0.016))
+            host.layoutSubtreeIfNeeded()
+            let size = IslandArtworkRenderProbe.surfaceSize
+            require(size.width >= initial - 1 && size.width <= target + 1, "Width adjustment overshot its endpoints")
+            require(abs(IslandArtworkRenderProbe.musicBackgroundFrame.width - size.width) < 2,
+                    "Music background did not follow the animated expanded width")
+            if size.width > initial + 1 && size.width < target - 1 { intermediates += 1 }
+        }
+        require(intermediates >= 3 && abs(IslandArtworkRenderProbe.surfaceSize.width - target) < 1,
+                "Changing width preferences snapped or failed to reach its derived width")
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("expanded-width-adjustment.png"))
+        print("PASS: live expanded width adjustment, \(intermediates) intermediate frames, page background synchronized")
+    }
+
     @MainActor static func verifyCompactAlignment(output: URL) async {
         let source = TimerActivityManager.shared
         let activities = ActivityCoordinator.shared
@@ -310,15 +424,17 @@ private struct ActionButtonSizes: PreferenceKey {
         Defaults[.lightingEffect] = false
         source.cancel()
         defer { source.cancel(); source.stop() }
-        for height: CGFloat in [24, 32] {
-            let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        for (height, width): (CGFloat, CGFloat) in [(24, 120), (24, 185), (24, 320), (32, 120), (32, 185), (32, 320)] {
+            let screen = NSScreen.screens.first { $0.safeAreaInsets.top == 0 } ?? NSScreen.screens[0]
+            let vm = IslandViewModel(screenUUID: screen.displayUUID)
             vm.hideOnClosed = false
-            vm.closedNotchSize = CGSize(width: 185, height: height)
+            vm.closedNotchSize = CGSize(width: width, height: height)
             let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 210),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.isOpaque = false
             window.backgroundColor = .clear
+            window.setContentSize(vm.windowSize)
             let host = NSHostingView(rootView: ContentView().environmentObject(vm)
                 .environment(\.locale, Locale(identifier: "zh-Hans")))
             window.contentView = host
@@ -327,7 +443,7 @@ private struct ActionButtonSizes: PreferenceKey {
                 host.layoutSubtreeIfNeeded()
                 let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
                 host.cacheDisplay(in: host.bounds, to: rep)
-                try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("compact-\(Int(height))-\(name).png"))
+                try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("compact-\(Int(height))-\(Int(width))-\(name).png"))
                 let scale = CGFloat(rep.pixelsWide) / host.bounds.width
                 let surface = IslandArtworkRenderProbe.surfaceSize
                 let surfaceLeft = (host.bounds.width - surface.width) / 2
@@ -348,7 +464,7 @@ private struct ActionButtonSizes: PreferenceKey {
                 let trailing = surfaceLeft + surface.width - CGFloat(last + 1) / scale
                 require(abs(leading - trailing) <= 3,
                         "Unequal compact outer margins in \(name), height \(height): left \(leading), right \(trailing)")
-                require(surface.width <= openNotchSize.width + 1, "Compact content exceeded its window budget")
+                require(surface.width <= vm.expandedNotchSize.width + 1, "Compact content exceeded its window budget")
                 print("PASS: compact \(name), height \(height), outer margins \(leading)/\(trailing), width \(surface.width)")
                 return surface.width
             }
@@ -416,6 +532,7 @@ private struct ActionButtonSizes: PreferenceKey {
         let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
         defer { vm.destroy() }
         vm.hideOnClosed = false
+        window.setContentSize(vm.windowSize)
         let alertHost = NSHostingView(rootView: ContentView().environmentObject(vm))
         window.contentView = alertHost
         window.orderBack(nil)
@@ -430,8 +547,8 @@ private struct ActionButtonSizes: PreferenceKey {
                     if activities.current?.kind == .timerFinished && vm.notchState == .open
                         && IslandArtworkRenderProbe.selectedPage == .timer
                         && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.001
-                        && abs(size.width - openNotchSize.width) < 0.1
-                        && abs(size.height - openNotchSize.height) < 0.1 { break }
+                        && abs(size.width - vm.expandedNotchSize.width) < 0.1
+                        && abs(size.height - vm.expandedNotchSize.height) < 0.1 { break }
                 } else if vm.notchState == .closed && abs(size.height - vm.effectiveClosedNotchHeight) < 0.1 { break }
             }
         }
@@ -440,8 +557,8 @@ private struct ActionButtonSizes: PreferenceKey {
             require(activities.current?.kind == .timerFinished && vm.notchState == .open
                         && IslandArtworkRenderProbe.selectedPage == .timer
                         && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
-                        && abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 1
-                        && abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 1,
+                        && abs(IslandArtworkRenderProbe.surfaceSize.width - vm.expandedNotchSize.width) < 1
+                        && abs(IslandArtworkRenderProbe.surfaceSize.height - vm.expandedNotchSize.height) < 1,
                     "\(message): state=\(vm.notchState), page=\(IslandArtworkRenderProbe.selectedPage), offset=\(IslandArtworkRenderProbe.renderedPagePosition), surface=\(IslandArtworkRenderProbe.surfaceSize)")
         }
         requireTimerPage("Restored pending completion did not open the full timer page")
@@ -451,7 +568,7 @@ private struct ActionButtonSizes: PreferenceKey {
         source.cancel()
         await settleSurface(expanded: false)
         require(vm.notchState == .closed && activities.current?.kind == .music
-                    && IslandArtworkRenderProbe.surfaceSize.width < openNotchSize.width,
+                    && IslandArtworkRenderProbe.surfaceSize.width < vm.expandedNotchSize.width,
                 "Acknowledgement did not collapse the full page and restore music")
         source.start(duration: 1)
         await settleSurface(expanded: true)
@@ -615,6 +732,7 @@ private struct ActionButtonSizes: PreferenceKey {
         window.isReleasedWhenClosed = false
         let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
         vm.hideOnClosed = false
+        window.setContentSize(vm.windowSize)
         let host = NSHostingView(rootView: ContentView().environmentObject(vm))
         window.contentView = host
         window.orderBack(nil)
@@ -627,7 +745,7 @@ private struct ActionButtonSizes: PreferenceKey {
             let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
             host.cacheDisplay(in: host.bounds, to: rep)
             let scale = CGFloat(rep.pixelsWide) / host.bounds.width
-            let x = (host.bounds.width - openNotchSize.width) / 2 + 20
+            let x = (host.bounds.width - vm.expandedNotchSize.width) / 2 + 20
             let pixel = rep.colorAt(x: Int(x * scale), y: Int(110 * scale))!.usingColorSpace(.deviceRGB)!
             let brightness = max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
             require(visible ? brightness > 0.025 : brightness < 0.015,
@@ -658,8 +776,8 @@ private struct ActionButtonSizes: PreferenceKey {
             let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
             host.cacheDisplay(in: host.bounds, to: rep)
             let scale = CGFloat(rep.pixelsWide) / host.bounds.width
-            let x = (host.bounds.width - openNotchSize.width) / 2 + 70
-                - IslandArtworkRenderProbe.renderedPagePosition * openNotchSize.width
+            let x = (host.bounds.width - vm.expandedNotchSize.width) / 2 + 70
+                - IslandArtworkRenderProbe.renderedPagePosition * vm.expandedNotchSize.width
             let pixel = rep.colorAt(x: Int(x * scale), y: Int(184 * scale))!.usingColorSpace(.deviceRGB)!
             let brightness = max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent)
             try! rep.representation(using: .png, properties: [:])!.write(
@@ -689,8 +807,8 @@ private struct ActionButtonSizes: PreferenceKey {
             let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
             host.cacheDisplay(in: host.bounds, to: rep)
             let scale = CGFloat(rep.pixelsWide) / host.bounds.width
-            let right = (host.bounds.width + openNotchSize.width) / 2
-                - IslandArtworkRenderProbe.renderedPagePosition * openNotchSize.width
+            let right = (host.bounds.width + vm.expandedNotchSize.width) / 2
+                - IslandArtworkRenderProbe.renderedPagePosition * vm.expandedNotchSize.width
             let x = right - cornerRadiusInsets.opened.top - 2
             let pixel = rep.colorAt(x: Int(x * scale), y: Int(186 * scale))!.usingColorSpace(.deviceRGB)!
             require(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) < 0.015,
@@ -774,10 +892,10 @@ private struct ActionButtonSizes: PreferenceKey {
             try? await Task.sleep(for: .seconds(0.2))
         }
         await swipeRight()
-        require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current?.kind == .reminders,
-                "Regression fixture did not select the intervening reminder activity")
+        require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current?.kind == .music,
+                "Browsing reminders changed the resident music activity")
         await swipeRight()
-        require(IslandArtworkRenderProbe.selectedPage == .timer && activities.current?.kind == .reminders,
+        require(IslandArtworkRenderProbe.selectedPage == .timer && activities.current?.kind == .music,
                 "Empty timer page unexpectedly created an activity")
         require(IslandArtworkRenderProbe.startTimer != nil, "Timer page did not expose its production start action")
         IslandArtworkRenderProbe.startTimer?(1500)
@@ -793,6 +911,27 @@ private struct ActionButtonSizes: PreferenceKey {
         activities.post(.volume, value: 0.5)
         try? await Task.sleep(for: .seconds(1.7))
         require(activities.current?.kind == .timer, "Feedback failed to restore the newly started resident timer")
+        source.cancel()
+        activities.setMusicActive(false)
+        for kind in IslandActivityKind.allCases where kind != .reminders { activities.end(kind) }
+        require(activities.current == nil && activities.reminders.count == 1,
+                "Reminders remained resident after music and timer ended")
+        activities.prefer(.reminders)
+        require(activities.current == nil, "Browsing reminders created a resident activity")
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandPresentation(activity: activities.current) == .idle,
+                "Panel-only reminders did not leave the island idle")
+        snapshot("panel-only-reminders-closed")
+        let reminderSource = RemindersActivityManager.shared
+        let previousAuthorization = reminderSource.authorized
+        reminderSource.authorized = true
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current == nil,
+                "Opening the reminders panel created a resident activity")
+        snapshot("panel-only-reminders-expanded")
+        reminderSource.authorized = previousAuthorization
         print("PASS: production swipe/dot resident selection, empty-page browsing, song peek expiry, source disable, alarm override and restoration (isolated offscreen runtime)")
     }
 
@@ -947,6 +1086,7 @@ private struct ActionButtonSizes: PreferenceKey {
         window.isReleasedWhenClosed = false
         window.backgroundColor = .clear
         window.isOpaque = false
+        window.setContentSize(vm.windowSize)
         let host = NSHostingView(rootView: ContentView().environmentObject(vm))
         window.contentView = host
         window.orderBack(nil)
@@ -1043,6 +1183,7 @@ private struct ActionButtonSizes: PreferenceKey {
         window.isReleasedWhenClosed = false
         window.backgroundColor = .clear
         window.isOpaque = false
+        window.setContentSize(vm.windowSize)
         let host = NSHostingView(rootView: ContentView().environmentObject(vm))
         window.contentView = host
         window.orderBack(nil)
@@ -1062,7 +1203,7 @@ private struct ActionButtonSizes: PreferenceKey {
                 let left = Int((host.bounds.width - vm.notchSize.width) / 2 * scale + 24 * scale)
                 let right = width - left
                 let headerBottom = Int(max(0, vm.physicalNotchHeight - 2) * scale)
-                let dotsRight = Int(((host.bounds.width - openNotchSize.width) / 2 + cornerRadiusInsets.opened.top + 8 + 54) * scale)
+                let dotsRight = Int(((host.bounds.width - vm.expandedNotchSize.width) / 2 + cornerRadiusInsets.opened.top + 8 + 54) * scale)
                 for y in stride(from: Int(2 * scale), to: headerBottom, by: 2) {
                     for x in stride(from: left, to: right, by: 2) {
                         // The approved page dots occupy only the leading safe area.
@@ -1111,7 +1252,7 @@ private struct ActionButtonSizes: PreferenceKey {
             let islandBottom = (0..<height).last { color(width / 2, $0).alphaComponent > 0.99 }!
             let renderedHeight = CGFloat(islandBottom + 1) / scale
             let progress = min(1, max(0, (renderedHeight - vm.effectiveClosedNotchHeight)
-                                      / (openNotchSize.height - vm.effectiveClosedNotchHeight)))
+                                      / (vm.expandedNotchSize.height - vm.effectiveClosedNotchHeight)))
             let topRadius = cornerRadiusInsets.closed.top + (cornerRadiusInsets.opened.top - cornerRadiusInsets.closed.top) * progress
             let bottomRadius = cornerRadiusInsets.closed.bottom + (cornerRadiusInsets.opened.bottom - cornerRadiusInsets.closed.bottom) * progress
             let sideRow = Int((topRadius + max(0, renderedHeight - topRadius - bottomRadius) / 2) * scale)
@@ -1164,12 +1305,12 @@ private struct ActionButtonSizes: PreferenceKey {
         // confuse their one-time layout cost with the shared animation progress.
         for _ in 0..<90 {
             await wait(0.016)
-            if abs(IslandArtworkRenderProbe.surfaceSize.width - openNotchSize.width) < 0.1,
-               abs(IslandArtworkRenderProbe.surfaceSize.height - openNotchSize.height) < 0.1 { break }
+            if abs(IslandArtworkRenderProbe.surfaceSize.width - vm.expandedNotchSize.width) < 0.1,
+               abs(IslandArtworkRenderProbe.surfaceSize.height - vm.expandedNotchSize.height) < 0.1 { break }
         }
         await wait(0.04)
         let expanded = capture("expanded")
-        require(compact.islandWidth > 0 && abs(expanded.islandWidth - openNotchSize.width) < 1, "Surface size probe did not measure the real layout: compact \(compact), expanded \(expanded), layout \(IslandArtworkRenderProbe.surfaceSize)")
+        require(compact.islandWidth > 0 && abs(expanded.islandWidth - vm.expandedNotchSize.width) < 1, "Surface size probe did not measure the real layout: compact \(compact), expanded \(expanded), layout \(IslandArtworkRenderProbe.surfaceSize)")
         require(expanded.badgeWidth > 10, "The regression must exercise a real music app badge")
         func assertSynchronized(_ frame: Frame, compactWidth: CGFloat? = nil) {
             let islandProgress = (frame.islandHeight - compact.islandHeight) / (expanded.islandHeight - compact.islandHeight)

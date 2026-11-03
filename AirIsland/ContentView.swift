@@ -83,9 +83,9 @@ struct ContentView: View {
                         vm: vm, expansion: vm.notchState == .open ? 1 : 0,
                         closedSurfaceHeight: closedSurfaceHeight,
                         compactWidth: measuredCompactWidth,
-                        expandedSize: openNotchSize,
+                        expandedSize: vm.expandedNotchSize,
                         expandedLeadingInset: expandedArtworkLeadingInset,
-                        expandedContent: ExpandedNotchLayout(),
+                        expandedContent: { width in ExpandedNotchLayout(width: width) },
                         pagePosition: pagePosition,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
                         scalesCorners: Defaults[.cornerRadiusScaling],
@@ -94,6 +94,7 @@ struct ContentView: View {
                     .animation(islandAnimation, value: vm.notchState)
                     .animation(islandAnimation, value: measuredCompactWidth)
                     .animation(islandAnimation, value: closedSurfaceHeight)
+                    .animation(islandAnimation, value: vm.expandedNotchSize.width)
                     .shadow(
                         color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
                             ? .black.opacity(0.7) : .clear, radius: Defaults[.cornerRadiusScaling] ? 6 : 4
@@ -130,7 +131,8 @@ struct ContentView: View {
                             switch activities.current?.kind {
                             case .timer, .timerFinished: page = .timer
                             case .reminders: page = .reminders
-                            case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power, .none: page = .music
+                            case .none: page = activities.reminders.isEmpty ? .music : .reminders
+                            case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power: page = .music
                             }
                             showOpeningPage(page)
                         } else { vm.isEditingActivity = false }
@@ -154,7 +156,7 @@ struct ContentView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        .frame(maxWidth: vm.windowSize.width, maxHeight: vm.windowSize.height, alignment: .top)
         .compositingGroup()
         .preferredColorScheme(.dark)
         .environmentObject(vm)
@@ -178,7 +180,7 @@ struct ContentView: View {
                     if presentation == .power
                         && Defaults[.showPowerStatusNotifications]
                     {
-                        CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
+                        CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight, maximumWidth: vm.expandedNotchSize.width) {
                             Text(batteryModel.statusText)
                                 .font(.subheadline)
                                 .foregroundStyle(.white)
@@ -193,16 +195,11 @@ struct ContentView: View {
                         }
                       } else if presentation == .timer(finished: false), let timer = activities.current?.timer {
                           TimelineView(.periodic(from: .now, by: 1)) { context in
-                              CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
+                              CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight, maximumWidth: vm.expandedNotchSize.width) {
                                   Image(systemName: "timer").foregroundStyle(.orange)
                                   Text(timerText(timer.remaining(at: context.date)))
                                       .font(.caption).monospacedDigit().foregroundStyle(.orange)
                               }
-                          }
-                      } else if presentation == .reminders {
-                          CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight) {
-                              Image(systemName: "checklist").foregroundStyle(.blue)
-                              Text("\(activities.reminders.count) tasks").font(.caption).foregroundStyle(.blue).lineLimit(1)
                           }
                       } else if presentation.feedback != nil {
                           InlineHUD(type: activities.current?.kind ?? .volume, value: Binding(get: { activities.current?.value ?? 0 }, set: { activities.updateFeedbackValue($0) }), icon: activities.current?.icon ?? "", hoverAnimation: $isHovering)
@@ -228,7 +225,7 @@ struct ContentView: View {
         expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding
     }
 
-    private func ExpandedNotchLayout() -> some View {
+    private func ExpandedNotchLayout(width: CGFloat) -> some View {
         let dotSide: CGFloat = 5
         let dotTargetWidth: CGFloat = 18
         return VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
@@ -248,14 +245,14 @@ struct ContentView: View {
             .frame(height: max(24, vm.effectiveClosedNotchHeight))
             if vm.notchState == .open {
                 HStack(spacing: 0) {
-                    expandedPage(.music) { NotchHomeView() }
-                    expandedPage(.reminders) { RemindersActivityPage(active: pager.selection == .reminders) }
-                    expandedPage(.timer) { TimerActivityPage(active: pager.selection == .timer) }
+                    expandedPage(.music, width: width) { NotchHomeView() }
+                    expandedPage(.reminders, width: width) { RemindersActivityPage(active: pager.selection == .reminders) }
+                    expandedPage(.timer, width: width) { TimerActivityPage(active: pager.selection == .timer) }
                 }
-                    .frame(width: openNotchSize.width * CGFloat(IslandPage.allCases.count),
+                    .frame(width: width * CGFloat(IslandPage.allCases.count),
                            height: expandedPageHeight, alignment: .leading)
-                    .offset(x: -pagePosition * openNotchSize.width)
-                    .frame(width: openNotchSize.width, height: expandedPageHeight, alignment: .leading)
+                    .offset(x: -pagePosition * width)
+                    .frame(width: width, height: expandedPageHeight, alignment: .leading)
                     .clipped()
                     .background {
                         HorizontalPagingGesture(action: handleHorizontalGesture)
@@ -265,13 +262,13 @@ struct ContentView: View {
     }
 
     private var expandedPageHeight: CGFloat {
-        max(0, openNotchSize.height - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
+        max(0, expandedNotchHeight - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
     }
 
-    private func expandedPage<Content: View>(_ page: IslandPage, @ViewBuilder content: () -> Content) -> some View {
+    private func expandedPage<Content: View>(_ page: IslandPage, width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
         content().padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
             .padding(.bottom, MusicPlayerImageSizes.panelPadding)
-            .frame(width: openNotchSize.width, height: expandedPageHeight)
+            .frame(width: width, height: expandedPageHeight)
             .background {
                 if page == .music {
                     IslandBackdrop(color: musicManager.avgColor,
@@ -311,7 +308,7 @@ struct ContentView: View {
         guard vm.notchState == .open, !vm.isEditingActivity else { return }
         if phase == .began { musicPageHasEntered = true; pager.begin() }
         else if phase == .changed {
-            if let page = pager.drag(delta: delta / openNotchSize.width, seconds: seconds) {
+            if let page = pager.drag(delta: delta / vm.expandedNotchSize.width, seconds: seconds) {
                 activities.prefer(page.activityKind)
                 withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(page.rawValue) }
                 IslandHaptics.alignment()
@@ -360,7 +357,7 @@ struct ContentView: View {
                 )
                 .frame(
                     width: (presentation.showsMusicPeek)
-                        ? 380
+                        ? min(380, max(0, vm.expandedNotchSize.width - 2 * cornerRadiusInsets.closed.bottom - 2 * max(0, vm.effectiveClosedNotchHeight - 12) - 16))
                         : vm.closedNotchSize.width
                             + -cornerRadiusInsets.closed.top
                 )
@@ -454,6 +451,7 @@ struct ContentView: View {
 private struct CompactActivityLayout: Layout {
     let notchWidth: CGFloat
     let height: CGFloat
+    let maximumWidth: CGFloat
     private let spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -470,7 +468,7 @@ private struct CompactActivityLayout: Layout {
 
     private func sideWidth(_ subviews: Subviews) -> CGFloat {
         let ideal = subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
-        let maximum = max(0, (openNotchSize.width - 2 * cornerRadiusInsets.closed.bottom - max(0, notchWidth)) / 2 - spacing)
+        let maximum = max(0, (maximumWidth - 2 * cornerRadiusInsets.closed.bottom - max(0, notchWidth)) / 2 - spacing)
         return min(ideal, maximum)
     }
 }
@@ -482,22 +480,23 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     var expansion: CGFloat
     var closedSurfaceHeight: CGFloat
     var compactWidth: CGFloat
-    let expandedSize: CGSize
+    var expandedSize: CGSize
     let expandedLeadingInset: CGFloat
-    let expandedContent: ExpandedContent
+    let expandedContent: (CGFloat) -> ExpandedContent
     var pagePosition: CGFloat
     let keepsCompactVisible: Bool
     let scalesCorners: Bool
     let isArtworkPaused: Bool
     let showsArtwork: Bool
 
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>> {
-        get { AnimatablePair(expansion, AnimatablePair(compactWidth, AnimatablePair(closedSurfaceHeight, pagePosition))) }
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>> {
+        get { AnimatablePair(expansion, AnimatablePair(compactWidth, AnimatablePair(closedSurfaceHeight, AnimatablePair(pagePosition, expandedSize.width)))) }
         set {
             expansion = newValue.first
             compactWidth = newValue.second.first
             closedSurfaceHeight = newValue.second.second.first
-            pagePosition = newValue.second.second.second
+            pagePosition = newValue.second.second.second.first
+            expandedSize.width = newValue.second.second.second.second
         }
     }
 
@@ -516,7 +515,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
                 }
             }
             .overlay(alignment: .top) {
-                expandedContent
+                expandedContent(expandedSize.width)
                     .frame(width: expandedSize.width, height: expandedSize.height, alignment: .top)
                     .opacity(expansion)
                     .allowsHitTesting(vm.notchState == .open)

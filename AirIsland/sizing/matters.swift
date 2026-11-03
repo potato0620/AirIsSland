@@ -10,8 +10,7 @@ import Foundation
 import SwiftUI
 
 let shadowPadding: CGFloat = 20
-let openNotchSize: CGSize = .init(width: 480, height: 190)
-let windowSize: CGSize = .init(width: openNotchSize.width + 2 * shadowPadding, height: openNotchSize.height + shadowPadding)
+let expandedNotchHeight: CGFloat = 190
 let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: CGFloat, bottom: CGFloat)) = (opened: (top: 19, bottom: 24), closed: (top: 6, bottom: 14))
 
 enum MusicPlayerImageSizes {
@@ -22,8 +21,39 @@ enum MusicPlayerImageSizes {
     static let panelPadding: CGFloat = 12
 
     static func expandedSide(headerHeight: CGFloat) -> CGFloat {
-        max(0, openNotchSize.height - headerHeight - sectionSpacing - panelPadding - 2 * padding)
+        max(0, expandedNotchHeight - headerHeight - sectionSpacing - panelPadding - 2 * padding)
     }
+}
+
+enum NonNotchWidth {
+    static let percentageRange: ClosedRange<CGFloat> = 5...10
+    static let defaultPercentage: CGFloat = 10
+    static let widthRange: ClosedRange<CGFloat> = 120...320
+
+    static func resolve(screenWidth: CGFloat, percentage: CGFloat) -> CGFloat {
+        let value = percentage.isFinite ? percentage : defaultPercentage
+        let fraction = min(percentageRange.upperBound, max(percentageRange.lowerBound, value)) / 100
+        return min(widthRange.upperBound, max(widthRange.lowerBound, screenWidth * fraction))
+    }
+}
+
+enum ExpandedNotchWidth {
+    static let multiplier: CGFloat = 2.5
+    static let widthRange: ClosedRange<CGFloat> = 400...960
+
+    static func resolve(baseWidth: CGFloat, screenWidth: CGFloat) -> CGFloat {
+        let available = max(0, screenWidth - 2 * shadowPadding)
+        return min(available, min(widthRange.upperBound, max(widthRange.lowerBound, baseWidth * multiplier)))
+    }
+}
+
+@MainActor func getExpandedNotchSize(baseWidth: CGFloat, screenUUID: String?) -> CGSize {
+    let screen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+    if let screen, screen.safeAreaInsets.top > 0 {
+        return CGSize(width: 480, height: expandedNotchHeight)
+    }
+    return CGSize(width: ExpandedNotchWidth.resolve(baseWidth: baseWidth,
+        screenWidth: screen?.frame.width ?? ExpandedNotchWidth.widthRange.upperBound + 2 * shadowPadding), height: expandedNotchHeight)
 }
 
 @MainActor func getClosedNotchSize(screenUUID: String? = nil) -> CGSize {
@@ -39,8 +69,12 @@ enum MusicPlayerImageSizes {
 
     // Check if the screen is available
     if let screen = selectedScreen {
+        if screen.safeAreaInsets.top == 0 {
+            notchWidth = NonNotchWidth.resolve(
+                screenWidth: screen.frame.width, percentage: Defaults[.nonNotchWidthPercentage])
+        }
         // Calculate and set the exact width of the notch
-        if let topLeftNotchpadding: CGFloat = screen.auxiliaryTopLeftArea?.width,
+        else if let topLeftNotchpadding: CGFloat = screen.auxiliaryTopLeftArea?.width,
            let topRightNotchpadding: CGFloat = screen.auxiliaryTopRightArea?.width
         {
             notchWidth = screen.frame.width - topLeftNotchpadding - topRightNotchpadding + 4

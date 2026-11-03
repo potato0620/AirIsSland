@@ -8,7 +8,6 @@ enum IslandPresentation: Equatable {
     case feedback(IslandActivity)
     case power
     case timer(finished: Bool)
-    case reminders
 
     init(activity: IslandActivity?) {
         guard let activity else { self = .idle; return }
@@ -18,7 +17,7 @@ enum IslandPresentation: Equatable {
         case .power: self = .power
         case .timer: self = .timer(finished: false)
         case .timerFinished: self = .timer(finished: true)
-        case .reminders: self = .reminders
+        case .reminders: self = .idle
         case .volume, .brightness, .backlight, .mic: self = .feedback(activity)
         }
     }

@@ -144,7 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createIslandWindow(for screen: NSScreen, with viewModel: IslandViewModel) -> NSWindow {
-        let rect = NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height)
+        let rect = NSRect(origin: .zero, size: viewModel.windowSize)
         let styleMask: NSWindow.StyleMask = [.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow]
         
         let window = IslandWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)
@@ -175,17 +175,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private func positionWindow(_ window: NSWindow, on screen: NSScreen, changeAlpha: Bool = false) {
+    private func positionWindow(_ window: NSWindow, on screen: NSScreen, size: CGSize, changeAlpha: Bool = false) {
         if changeAlpha {
             window.alphaValue = 0
         }
 
         let screenFrame = screen.frame
-        window.setFrameOrigin(
-            NSPoint(
-                x: screenFrame.origin.x + (screenFrame.width / 2) - window.frame.width / 2,
-                y: screenFrame.origin.y + screenFrame.height - window.frame.height
-            ))
+        window.setFrame(NSRect(x: screenFrame.midX - size.width / 2,
+                               y: screenFrame.maxY - size.height,
+                               width: size.width, height: size.height), display: true)
         window.alphaValue = 1
     }
 
@@ -379,7 +377,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
 
                 if let window = windows[uuid], let viewModel = viewModels[uuid] {
-                    positionWindow(window, on: screen, changeAlpha: changeAlpha)
+                    viewModel.closedNotchSize = getClosedNotchSize(screenUUID: uuid)
+                    viewModel.notchSize = viewModel.notchState == .open ? viewModel.expandedNotchSize : viewModel.closedNotchSize
+                    positionWindow(window, on: screen, size: viewModel.windowSize, changeAlpha: changeAlpha)
 
                     if viewModel.notchState == .closed {
                         viewModel.close()
@@ -404,14 +404,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             vm.screenUUID = selectedScreen.displayUUID
-            vm.notchSize = getClosedNotchSize(screenUUID: selectedScreen.displayUUID)
+            vm.closedNotchSize = getClosedNotchSize(screenUUID: selectedScreen.displayUUID)
+            vm.notchSize = vm.notchState == .open ? vm.expandedNotchSize : vm.closedNotchSize
 
             if window == nil {
                 window = createIslandWindow(for: selectedScreen, with: vm)
             }
 
             if let window = window {
-                positionWindow(window, on: selectedScreen, changeAlpha: changeAlpha)
+                positionWindow(window, on: selectedScreen, size: vm.windowSize, changeAlpha: changeAlpha)
 
                 if vm.notchState == .closed {
                     vm.close()

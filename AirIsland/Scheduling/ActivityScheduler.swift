@@ -44,10 +44,12 @@ struct ActivityScheduler {
     }
 
     func current(at now: TimeInterval) -> IslandActivity? {
-        let automatic = entries.values.filter { $0.expiresAt.map { $0 > now } ?? true }
+        let automatic = entries.values.filter {
+            ($0.expiresAt.map { $0 > now } ?? true) && Self.priority(for: $0.activity.kind) != nil
+        }
             .max {
-                let lhs = Self.priority(for: $0.activity.kind)
-                let rhs = Self.priority(for: $1.activity.kind)
+                let lhs = Self.priority(for: $0.activity.kind) ?? Int.min
+                let rhs = Self.priority(for: $1.activity.kind) ?? Int.min
                 return lhs == rhs ? $0.sequence < $1.sequence : lhs < rhs
             }?.activity
         guard let automatic, Self.isPersistent(automatic.kind),
@@ -62,11 +64,12 @@ struct ActivityScheduler {
         return entry.activity
     }
 
-    private static func priority(for kind: IslandActivityKind) -> Int {
+    /// Nil keeps source data available to expanded panels without entering arbitration.
+    private static func priority(for kind: IslandActivityKind) -> Int? {
         switch kind {
         case .timerFinished: return 110
         case .timer: return 30
-        case .reminders: return 5
+        case .reminders: return nil
         case .power: return 80
         case .musicChange: return 100
         case .music: return 10
@@ -76,8 +79,8 @@ struct ActivityScheduler {
 
     private static func isPersistent(_ kind: IslandActivityKind) -> Bool {
         switch kind {
-        case .music, .timer, .reminders: return true
-        case .timerFinished, .power, .musicChange, .volume, .brightness, .backlight, .mic: return false
+        case .music, .timer: return true
+        case .reminders, .timerFinished, .power, .musicChange, .volume, .brightness, .backlight, .mic: return false
         }
     }
 

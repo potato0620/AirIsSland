@@ -50,7 +50,7 @@ final class PersonalActivityTests: XCTestCase {
         XCTAssertEqual(scheduler.current(at: 100000)?.kind, .music)
     }
 
-    func testAcknowledgingFinishedTimerWithoutMusicRestoresRemindersOrIdle() throws {
+    func testAcknowledgingFinishedTimerWithoutMusicRestoresIdleWithPanelOnlyReminders() throws {
         var timer = try XCTUnwrap(TimerSession(duration: 1, now: start))
         timer.finishIfDue(at: start.addingTimeInterval(2))
         var scheduler = ActivityScheduler()
@@ -60,7 +60,8 @@ final class PersonalActivityTests: XCTestCase {
         scheduler.expire(at: 100000)
         XCTAssertEqual(scheduler.current(at: 100000)?.kind, .timerFinished)
         scheduler.end(.timerFinished)
-        XCTAssertEqual(scheduler.current(at: 100000)?.kind, .reminders)
+        XCTAssertNil(scheduler.current(at: 100000))
+        XCTAssertEqual(scheduler.activity(.reminders, at: 100000)?.reminders.count, 1)
         scheduler.end(.reminders)
         XCTAssertNil(scheduler.current(at: 100000))
     }

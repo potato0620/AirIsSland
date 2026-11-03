@@ -22,6 +22,7 @@ struct DisplayInteractionSections: View {
     @Default(.minimumHoverDuration) var minimumHoverDuration
     @Default(.nonNotchHeight) var nonNotchHeight
     @Default(.nonNotchHeightMode) var nonNotchHeightMode
+    @Default(.nonNotchWidthPercentage) var nonNotchWidthPercentage
     @Default(.notchHeight) var notchHeight
     @Default(.notchHeightMode) var notchHeightMode
     @Default(.hideNotchOption) private var hideNotchOption
@@ -78,6 +79,23 @@ struct DisplayInteractionSections: View {
             }
 
             Section {
+                Slider(value: $nonNotchWidthPercentage, in: NonNotchWidth.percentageRange, step: 1) {
+                    HStack {
+                        Text("Notch width on non-notch displays")
+                        Spacer()
+                        Text("\(nonNotchWidthPercentage, specifier: "%.0f")%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .onAppear {
+                    nonNotchWidthPercentage = min(NonNotchWidth.percentageRange.upperBound,
+                        max(NonNotchWidth.percentageRange.lowerBound, nonNotchWidthPercentage))
+                }
+                .onChange(of: nonNotchWidthPercentage) {
+                    NotificationCenter.default.post(
+                        name: Notification.Name.notchHeightChanged, object: nil)
+                }
                 Picker(
                     selection: $notchHeightMode,
                     label:

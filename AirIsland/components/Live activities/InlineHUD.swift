@@ -14,9 +14,13 @@ struct InlineHUD: View {
     let icon: String
     @Binding var hoverAnimation: Bool
     private var hudHeight: CGFloat { max(24, vm.closedNotchSize.height) }
+    private var sideWidth: CGFloat {
+        let budget = (vm.expandedNotchSize.width - 2 * cornerRadiusInsets.closed.bottom - vm.closedNotchSize.width - 16) / 2
+        return min(100 - (hoverAnimation ? 0 : 12), max(0, budget))
+    }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             HStack(spacing: 5) {
                 Group {
                     switch (type) {
@@ -61,7 +65,7 @@ struct InlineHUD: View {
                     .allowsTightening(true)
                     .contentTransition(.numericText())
             }
-            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12)), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
+            .frame(width: sideWidth, height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .leading)
             
             Color.clear
                 .frame(width: max(0, vm.closedNotchSize.width))
@@ -106,7 +110,7 @@ struct InlineHUD: View {
                     }
                 }
             }
-            .frame(width: max(0, 100 - (hoverAnimation ? 0 : 12)), height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .trailing)
+            .frame(width: sideWidth, height: max(0, hudHeight - (hoverAnimation ? 0 : 12)), alignment: .trailing)
         }
         .frame(height: max(0, hudHeight + (hoverAnimation ? 8 : 0)), alignment: .center)
     }

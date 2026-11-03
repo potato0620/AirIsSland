@@ -29,6 +29,15 @@ class IslandViewModel: NSObject, ObservableObject {
 
     @Published var notchSize: CGSize = getClosedNotchSize()
     @Published var closedNotchSize: CGSize = getClosedNotchSize()
+
+    var expandedNotchSize: CGSize {
+        getExpandedNotchSize(baseWidth: closedNotchSize.width, screenUUID: screenUUID)
+    }
+
+    var windowSize: CGSize {
+        CGSize(width: expandedNotchSize.width + 2 * shadowPadding,
+               height: expandedNotchSize.height + shadowPadding)
+    }
     
     deinit {
         destroy()
@@ -96,7 +105,7 @@ class IslandViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = openNotchSize
+        self.notchSize = expandedNotchSize
         self.notchState = .open
         
         // Force music information update when notch is opened

@@ -19349,6 +19349,16 @@
           }
         }
       }
+    },
+    "Notch width on non-notch displays" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无刘海屏幕的刘海宽度"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

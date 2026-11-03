@@ -33,6 +33,7 @@ extension Defaults.Keys {
         default: WindowHeightMode.matchMenuBar
     )
     static let nonNotchHeight = Key<CGFloat>("nonNotchHeight", default: 32)
+    static let nonNotchWidthPercentage = Key<CGFloat>("nonNotchWidthPercentage", default: NonNotchWidth.defaultPercentage)
     static let notchHeight = Key<CGFloat>("notchHeight", default: 32)
     static let showOnLockScreen = Key<Bool>("showOnLockScreen", default: false)
     static let hideFromScreenRecording = Key<Bool>("hideFromScreenRecording", default: false)

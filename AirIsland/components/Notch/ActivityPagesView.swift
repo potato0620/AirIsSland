@@ -265,6 +265,11 @@ struct RemindersActivityPage: View {
                         if listIdentifier.isEmpty { Text("All tasks") }
                         else { Text(source.lists.first(where: { $0.id == listIdentifier })?.title ?? String(localized: "Selected list unavailable")) }
                     }.foregroundStyle(.white.opacity(0.5))
+                    Spacer(minLength: 8)
+                    Text("\(activities.reminders.count) tasks")
+                        .foregroundStyle(.blue)
+                        .monospacedDigit()
+                        .fixedSize()
                 }.font(.subheadline).lineLimit(1)
                 VStack(alignment: .leading, spacing: 5) {
                     if let error = source.errorMessage {
