@@ -67,6 +67,10 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--music-entry-only") {
+                await verifyMusicEntry(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--motion-only") {
                 await verifyPersonalMotion(output: output)
                 exit(0)
@@ -134,6 +138,7 @@ private struct ActionButtonSizes: PreferenceKey {
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
             await verifyArtworkReadiness()
             await verifySeekingDoesNotAnnounceTrackChanges()
+            await verifyMusicEntry(output: output)
             await verifyEnabledPages(output: output)
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
@@ -144,6 +149,161 @@ private struct ActionButtonSizes: PreferenceKey {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func verifyMusicEntry(output: URL) async {
+        let previousReminders = Defaults[.remindersActivityEnabled]
+        let previousTimer = Defaults[.timerActivityEnabled]
+        let previousLighting = Defaults[.lightingEffect]
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        defer {
+            Defaults[.remindersActivityEnabled] = previousReminders
+            Defaults[.timerActivityEnabled] = previousTimer
+            Defaults[.lightingEffect] = previousLighting
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+        }
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.timerActivityEnabled] = true
+        Defaults[.lightingEffect] = true
+        IslandArtworkRenderProbe.reduceMotion = false
+        TimerActivityManager.shared.cancel()
+        let music = MusicManager.shared
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.hideOnClosed = false
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .black
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; vm.destroy() }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        let appearances = IslandArtworkRenderProbe.appearances
+        let identity = music.albumArtTrackIdentifier
+        let inset = cornerRadiusInsets.opened.top + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding
+        let side = MusicPlayerImageSizes.expandedSide(headerHeight: max(24, vm.effectiveClosedNotchHeight))
+        let leading = (host.bounds.width - vm.expandedNotchSize.width) / 2
+        let top = max(24, vm.effectiveClosedNotchHeight) + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding
+
+        // Read the actual cover edge rather than relying on the animation's input.
+        func capture(_ name: String? = nil) -> CGFloat? {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            if let name {
+                try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            }
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let row = Int((top + side / 2) * scale)
+            let right = (0..<rep.pixelsWide).last { x in
+                let c = rep.colorAt(x: x, y: row)!.usingColorSpace(.deviceRGB)!
+                return c.redComponent > 0.78 && c.redComponent < 0.94 && c.greenComponent > 0.97 && c.blueComponent > 0.97
+            }
+            return right.map { CGFloat($0 + 1) / scale }
+        }
+        let finalRight = capture("music-entry-resting")!
+        require(abs(finalRight - (leading + inset + side)) < 2, "Resting cover moved out of its original slot")
+
+        for page in [IslandPage.reminders, .timer] {
+            IslandArtworkRenderProbe.selectPage?(page)
+            try? await Task.sleep(for: .seconds(0.4))
+            require(capture() == nil, "Cover remained on a non-music page")
+            IslandArtworkRenderProbe.selectPage?(.music)
+            var samples: [(TimeInterval, CGFloat, CGFloat?)] = []
+            let began = Date()
+            for index in 0..<35 {
+                try? await Task.sleep(for: .seconds(0.016))
+                let edge = capture(index % 4 == 0 ? "music-entry-\(page)-\(index)" : nil)
+                samples.append((Date().timeIntervalSince(began), IslandArtworkRenderProbe.renderedPagePosition, edge))
+            }
+            let trailing = samples.filter { abs($0.1) < 0.01 && ($0.2 ?? -10000) < finalRight - 3 }
+            let visible = samples.compactMap(\.2)
+            require(!trailing.isEmpty, "Cover did not trail the settled page: \(samples)")
+            require(Set(visible.map { Int($0) }).count >= 5 && abs(visible.last! - finalRight) < 2,
+                    "Cover did not move continuously from the left and settle into its slot: \(samples)")
+            require(zip(visible, visible.dropFirst()).allSatisfy { $1 >= $0 - 1.5 }, "Cover overshot or moved backward")
+            let pageSettled = samples.first { abs($0.1) < 0.01 }!.0
+            require(pageSettled < 0.24, "The existing page transition was slowed down: \(pageSettled)")
+        }
+        // A sub-threshold drag still follows the finger and returns to its page.
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.4))
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+        IslandArtworkRenderProbe.horizontalGesture?(-30, 0.1, .changed)
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+        try? await Task.sleep(for: .seconds(0.4))
+        require(IslandArtworkRenderProbe.selectedPage == .reminders && capture() == nil, "Cancelled swipe exposed the cover")
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+        IslandArtworkRenderProbe.horizontalGesture?(-vm.expandedNotchSize.width / 2, 0.02, .changed)
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+        try? await Task.sleep(for: .seconds(0.19))
+        let midSwipe = capture("music-entry-swipe-trailing")
+        require(abs(IslandArtworkRenderProbe.renderedPagePosition) < 0.01 && (midSwipe ?? -10000) < finalRight - 3,
+                "Committed swipe lost the independent cover follow-through")
+        // Reverse while the cover is still catching up; its identity must survive.
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.045))
+        IslandArtworkRenderProbe.selectPage?(.music)
+        try? await Task.sleep(for: .seconds(0.7))
+        require(abs(capture()! - finalRight) < 2 && IslandArtworkRenderProbe.appearances == appearances
+                    && music.albumArtTrackIdentifier == identity,
+                "Rapid reversal recreated the cover or restored a stale position")
+
+        // Reopening follows the resident activity, rather than playing a page entry.
+        // Read cover pixels against each rendered expansion frame, not a settled snapshot.
+        for (page, closedWait): (IslandPage, TimeInterval) in [
+            (.reminders, 0.65), (.timer, 0.65), (.reminders, 0.08), (.timer, 0.08)
+        ] {
+            IslandArtworkRenderProbe.selectPage?(page)
+            try? await Task.sleep(for: .seconds(0.35))
+            vm.close()
+            try? await Task.sleep(for: .seconds(closedWait))
+            require(ActivityCoordinator.shared.current?.kind == .music, "Fixture lost resident music")
+            vm.open()
+            var measured = 0
+            for _ in 0..<24 {
+                try? await Task.sleep(for: .seconds(0.016))
+                host.layoutSubtreeIfNeeded()
+                let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                host.cacheDisplay(in: host.bounds, to: rep)
+                let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+                let surface = IslandArtworkRenderProbe.surfaceSize
+                let p = min(1, max(0, (surface.height - vm.effectiveClosedNotchHeight)
+                    / (vm.expandedNotchSize.height - vm.effectiveClosedNotchHeight)))
+                let coverSide = max(0, vm.effectiveClosedNotchHeight - 12)
+                    + (side - max(0, vm.effectiveClosedNotchHeight - 12)) * p
+                let expected = (host.bounds.width - surface.width) / 2
+                    + cornerRadiusInsets.closed.bottom + (inset - cornerRadiusInsets.closed.bottom) * p + coverSide
+                let row = Int((6 + (top - 6) * p + coverSide / 2) * scale)
+                var right = -1
+                for x in 0..<rep.pixelsWide / 2 {
+                    let c = rep.colorAt(x: x, y: row)!.usingColorSpace(.deviceRGB)!
+                    if c.redComponent > 0.78 && c.redComponent < 0.94 && c.greenComponent > 0.97 && c.blueComponent > 0.97 {
+                        right = max(right, x)
+                    }
+                }
+                if p > 0.12 && right >= 0 {
+                    let actual = CGFloat(right + 1) / scale
+                    require(abs(actual - expected) < 3,
+                            "Reopening from \(page) replayed horizontal cover entry: actual=\(actual), expected=\(expected), expansion=\(p)")
+                    measured += 1
+                }
+            }
+            require(measured >= 6 && IslandArtworkRenderProbe.selectedPage == .music,
+                    "Reopen regression did not measure the music cover through expansion")
+        }
+
+        IslandArtworkRenderProbe.reduceMotion = true
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.1))
+        IslandArtworkRenderProbe.selectPage?(.music)
+        try? await Task.sleep(for: .seconds(0.04))
+        require(abs(capture("music-entry-reduced-motion")! - finalRight) < 2,
+                "Reduce Motion retained a delayed cover animation")
+        IslandArtworkRenderProbe.reduceMotion = false
+        print("PASS: music cover trails unchanged page timing from reminders/timer, swipe commit/cancel, rapid reversal, resident-page reopening and interrupted collapse without replay, persistent identity and Reduce Motion")
     }
 
     @MainActor static func renderRemindersPage(output: URL) async {

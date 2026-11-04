@@ -32,6 +32,7 @@ struct ContentView: View {
     @State private var pager = IslandPager()
     @State private var pagePosition: CGFloat = 0
     @State private var musicPageHasEntered = true
+    @State private var artworkPagingIsInteractive = false
     @State private var measuredCompactWidth: CGFloat = 0
 
     @ObservedObject private var activities = ActivityCoordinator.shared
@@ -99,6 +100,9 @@ struct ContentView: View {
                         expandedLeadingInset: expandedArtworkLeadingInset,
                         expandedContent: { width in ExpandedNotchLayout(width: width) },
                         pagePosition: pagePosition,
+                        artworkPageTarget: pagePosition,
+                        artworkReturningToMusic: pager.selection == .music,
+                        artworkPagingIsInteractive: artworkPagingIsInteractive,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
                         scalesCorners: Defaults[.cornerRadiusScaling],
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork
@@ -150,7 +154,10 @@ struct ContentView: View {
                             case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power: page = .music
                             }
                             showOpeningPage(page)
-                        } else { vm.isEditingActivity = false }
+                        } else {
+                            vm.isEditingActivity = false
+                            artworkPagingIsInteractive = false
+                        }
                         if newState == .closed && isHovering {
                             withAnimation(islandAnimation) {
                                 isHovering = false
@@ -316,6 +323,7 @@ struct ContentView: View {
         activities.prefer(page.activityKind)
         guard page != pager.selection else { return }
         vm.isEditingActivity = false
+        artworkPagingIsInteractive = true
         if page == .music { musicPageHasEntered = true }
         pager.select(page)
         withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
@@ -323,6 +331,8 @@ struct ContentView: View {
     }
 
     private func showOpeningPage(_ page: IslandPage) {
+        // Restoring the resident page during expansion is not a user page switch.
+        artworkPagingIsInteractive = false
         pager.updatePages(enabledPages)
         pager.select(enabledPages.contains(page) ? page : enabledPages[0])
         musicPageHasEntered = pager.selection == .music
@@ -330,6 +340,7 @@ struct ContentView: View {
     }
 
     private func updateEnabledPages() {
+        artworkPagingIsInteractive = false
         let previous = pager.selection
         pager.updatePages(enabledPages)
         if previous != pager.selection { vm.isEditingActivity = false }
@@ -339,7 +350,11 @@ struct ContentView: View {
 
     private func handleHorizontalGesture(_ delta: Double, _ seconds: Double, _ phase: NSEvent.Phase) {
         guard vm.notchState == .open, !vm.isEditingActivity, enabledPages.count > 1 else { return }
-        if phase == .began { musicPageHasEntered = true; pager.begin() }
+        if phase == .began {
+            artworkPagingIsInteractive = true
+            musicPageHasEntered = true
+            pager.begin()
+        }
         else if phase == .changed {
             if let page = pager.drag(delta: delta / vm.expandedNotchSize.width, seconds: seconds) {
                 activities.prefer(page.activityKind)
@@ -509,6 +524,7 @@ private struct CompactActivityLayout: Layout {
 /// Width, height, outline and cover use the same rendered expansion. A compact
 /// content change is interpolated here too, never by a second outer frame.
 private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let vm: IslandViewModel
     var expansion: CGFloat
     var closedSurfaceHeight: CGFloat
@@ -517,6 +533,9 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let expandedLeadingInset: CGFloat
     let expandedContent: (CGFloat) -> ExpandedContent
     var pagePosition: CGFloat
+    let artworkPageTarget: CGFloat
+    let artworkReturningToMusic: Bool
+    let artworkPagingIsInteractive: Bool
     let keepsCompactVisible: Bool
     let scalesCorners: Bool
     let isArtworkPaused: Bool
@@ -558,8 +577,9 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
                 AlbumArtPresentation(vm: vm, expansion: expansion, closedHeight: closedHeight,
                                      expandedLeadingInset: expandedLeadingInset,
                                      scalesCorners: scalesCorners, isArtworkPaused: isArtworkPaused)
-                    .animation(nil) { artwork in
-                        artwork.offset(x: -pagePosition * expandedSize.width * expansion)
+                    .animation(artworkPagingAnimation) { artwork in
+                        artwork.modifier(ArtworkPageOffset(position: artworkPageTarget,
+                            expandedWidth: expandedSize.width, expansion: expansion))
                     }
                     .opacity(showsArtwork ? 1 : 0)
                     .allowsHitTesting(vm.notchState == .open && showsArtwork)
@@ -577,6 +597,32 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
 
     private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
         compact + (expanded - compact) * expansion
+    }
+
+    private var artworkPagingAnimation: Animation? {
+        guard artworkPagingIsInteractive else { return nil }
+        return artworkReturningToMusic
+            ? IslandAnimations.animation(reduceMotion: reduceMotion)
+            : IslandAnimations.pageCommit(reduceMotion: reduceMotion)
+    }
+}
+
+/// Only the cover and attached badge trail the incoming music page. Expansion
+/// geometry still comes from the island's rendered progress, including reversal.
+private struct ArtworkPageOffset: AnimatableModifier {
+    var position: CGFloat
+    let expandedWidth: CGFloat
+    let expansion: CGFloat
+
+    var animatableData: CGFloat {
+        get { position }
+        set { position = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.animation(nil) { artwork in
+            artwork.offset(x: -position * expandedWidth * expansion)
+        }
     }
 }
 
