@@ -20,6 +20,10 @@ enum IslandArtworkRenderProbe {
     static var startTimer: ((TimeInterval) -> Void)?
     static var actionFrames: [String: CGRect] = [:]
     static var actionHandlers: [String: () -> Void] = [:]
+    static var actionAppearances: [String: Int] = [:]
+    static var completeReminder: [String: () -> Void] = [:]
+    static var reminderWrites: [String] = []
+    static var reminderWriteSucceeds = true
 }
 
 private struct ActionButtonSizes: PreferenceKey {
@@ -63,6 +67,10 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--motion-only") {
+                await verifyPersonalMotion(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--pages-only") {
                 await verifyEnabledPages(output: output)
                 exit(0)
@@ -619,7 +627,7 @@ private struct ActionButtonSizes: PreferenceKey {
         await snapshot(TimerActivityPage(), name: "native-timer-finished-reduced-motion")
         IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
         await snapshot(RemindersActivityPage(), name: "native-reminders-unconnected")
-        await snapshot(TimerDurationForm(start: { _ in }), name: "native-timer-picker")
+        await snapshot(TimerDurationForm(duration: .constant(1500)), name: "native-timer-picker")
         var minuteSelection = 25
         await snapshot(DurationColumn(value: Binding(get: { minuteSelection }, set: { minuteSelection = $0 }), count: 60, label: "Minutes"),
                        name: "native-minute-selection")
@@ -661,11 +669,11 @@ private struct ActionButtonSizes: PreferenceKey {
         idleWheels[1].reflectScrolledClipView(idleWheels[1].contentView)
         try? await Task.sleep(for: .seconds(0.2))
         source.start(duration: 60)
-        try? await Task.sleep(for: .seconds(0.2))
+        try? await Task.sleep(for: .seconds(0.7))
         require(scrollViews(in: window.contentView!).isEmpty, "Running timer retained the setup wheels")
         source.togglePause()
         source.cancel() // The running/paused page's X action.
-        try? await Task.sleep(for: .seconds(0.4))
+        try? await Task.sleep(for: .seconds(0.7))
         let resetWheels = scrollViews(in: window.contentView!)
         require(resetWheels.count == 3 && abs(resetWheels[1].contentView.bounds.origin.y - defaultMinuteOrigin.y) < 1,
                 "Cancelling a timer did not restore the default picker selection")
@@ -710,6 +718,160 @@ private struct ActionButtonSizes: PreferenceKey {
                 "Disabling the timer retained a deadline or its stored session")
         Defaults[.timerActivityEnabled] = true
         print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
+    }
+
+    @MainActor static func verifyPersonalMotion(output: URL) async {
+        let timer = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let reminders = RemindersActivityManager.shared
+        let previousAuthorization = reminders.authorized
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        Defaults[.timerActivityEnabled] = true
+        Defaults[.remindersActivityEnabled] = true
+        reminders.authorized = true
+        IslandArtworkRenderProbe.reduceMotion = false
+        timer.cancel()
+        defer {
+            timer.cancel(); activities.setReminders([])
+            reminders.authorized = previousAuthorization
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+        }
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        defer { vm.destroy() }
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 420, height: 164),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil }
+        IslandArtworkRenderProbe.actionAppearances = [:]
+        let timerHost = NSHostingView(rootView: TimerActivityPage().environmentObject(vm)
+            .preferredColorScheme(.dark).background(Color.black))
+        window.contentView = timerHost
+        window.orderBack(nil)
+        try? await Task.sleep(for: .seconds(0.7))
+        func button(_ icon: String) -> CGRect {
+            timerHost.layoutSubtreeIfNeeded()
+            guard let frame = IslandArtworkRenderProbe.actionFrames[icon] else {
+                require(false, "Missing motion action frame: \(icon)"); return .zero
+            }
+            return frame
+        }
+        func snapshot(_ view: NSView, _ name: String) {
+            view.layoutSubtreeIfNeeded()
+            let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+        }
+        let idle = button("play.fill")
+        snapshot(timerHost, "motion-timer-idle")
+        IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+        require(activities.timer?.phase == .running && activities.timer?.duration == 1500,
+                "Primary action delayed the countdown or changed the selected default duration")
+        var centers: [CGFloat] = []
+        for index in 0..<30 {
+            try? await Task.sleep(for: .seconds(0.016))
+            centers.append(button("pause.fill").midY)
+            if index == 5 { snapshot(timerHost, "motion-timer-start-midway") }
+        }
+        let running = button("pause.fill")
+        require(Set(centers.map { Int(($0 * 10).rounded()) }).count >= 5
+                    && abs(running.midX - idle.midX) < 1 && running.midY < idle.midY - 30,
+                "Start control jumped or changed horizontal anchor: \(centers)")
+        snapshot(timerHost, "motion-timer-running")
+        IslandArtworkRenderProbe.actionHandlers["pause.fill"]?()
+        require(activities.timer?.phase == .paused, "Pause was delayed by its animation")
+        try? await Task.sleep(for: .seconds(0.2))
+        require(abs(button("play.fill").midY - running.midY) < 1, "Pause moved the primary button")
+        IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+        require(activities.timer?.phase == .running, "Resume did not use the persistent primary action")
+        try? await Task.sleep(for: .seconds(0.1))
+        IslandArtworkRenderProbe.actionHandlers["xmark"]?()
+        require(activities.timer == nil && UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1") == nil,
+                "Cancel waited for the visual return before clearing the countdown")
+        centers = []
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .seconds(0.016))
+            centers.append(button("play.fill").midY)
+        }
+        let reversing = centers.last!
+        IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+        try? await Task.sleep(for: .seconds(0.016))
+        require(activities.timer?.phase == .running && abs(button("pause.fill").midY - reversing) < 15,
+                "Rapid restart jumped to an endpoint")
+        timer.cancel()
+        try? await Task.sleep(for: .seconds(0.7))
+        require(abs(button("play.fill").midY - idle.midY) < 1
+                    && IslandArtworkRenderProbe.actionAppearances["play.fill"] == 1,
+                "Primary button was replaced rather than carried through start/pause/resume/cancel")
+        IslandArtworkRenderProbe.reduceMotion = true
+        IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+        try? await Task.sleep(for: .seconds(0.06))
+        require(abs(button("pause.fill").midY - running.midY) < 1, "Reduce Motion retained button travel")
+        timer.cancel()
+        IslandArtworkRenderProbe.reduceMotion = false
+        let reminderHost = NSHostingView(rootView: RemindersActivityPage().environmentObject(vm)
+            .preferredColorScheme(.dark).background(Color.black))
+        window.contentView = reminderHost
+        func tasks(_ prefix: String, count: Int) -> [ReminderTask] {
+            (0..<count).map { ReminderTask(id: "\(prefix)-\($0)", title: "Task \($0)", dueDate: nil) }
+        }
+        func pixels() -> (bottom: Int, white: Int) {
+            reminderHost.layoutSubtreeIfNeeded()
+            let rep = reminderHost.bitmapImageRepForCachingDisplay(in: reminderHost.bounds)!
+            reminderHost.cacheDisplay(in: reminderHost.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / reminderHost.bounds.width
+            var bottom = 0, white = 0
+            for y in Int(20 * scale)..<rep.pixelsHigh {
+                for x in 0..<Int(18 * scale) {
+                    let p = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    if p.blueComponent > 0.4 && p.blueComponent > p.redComponent * 1.3 { bottom = max(bottom, y) }
+                    if p.redComponent > 0.65 && p.greenComponent > 0.65 && p.blueComponent > 0.65 { white += 1 }
+                }
+            }
+            return (bottom, white)
+        }
+        activities.setReminders(tasks("success", count: 3))
+        try? await Task.sleep(for: .seconds(0.5))
+        let originalBottom = pixels().bottom
+        IslandArtworkRenderProbe.reminderWrites = []
+        IslandArtworkRenderProbe.reminderWriteSucceeds = true
+        IslandArtworkRenderProbe.completeReminder["success-0"]?()
+        IslandArtworkRenderProbe.completeReminder["success-0"]?()
+        require(activities.reminders.count == 2 && IslandArtworkRenderProbe.reminderWrites == ["success-0"],
+                "Successful completion was delayed or wrote twice")
+        var bottoms: [Int] = [], checkPixels = 0
+        for index in 0..<25 {
+            try? await Task.sleep(for: .seconds(0.016))
+            let frame = pixels(); bottoms.append(frame.bottom); checkPixels = max(checkPixels, frame.white)
+            if index == 3 { snapshot(reminderHost, "motion-reminder-completion-midway") }
+        }
+        require(checkPixels > 2 && Set(bottoms).count >= 4 && bottoms.last! < originalBottom - 20,
+                "Completion did not visibly acknowledge and smoothly close the gap: white=\(checkPixels), bottoms=\(bottoms)")
+        snapshot(reminderHost, "motion-reminder-completion-settled")
+        activities.setReminders(tasks("failure", count: 2))
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.reminderWriteSucceeds = false
+        IslandArtworkRenderProbe.completeReminder["failure-0"]?()
+        try? await Task.sleep(for: .seconds(0.5))
+        require(activities.reminders.count == 2 && pixels().white == 0, "Failed completion displayed success or removed the task")
+        activities.setReminders(tasks("rapid", count: 3))
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.reminderWriteSucceeds = true
+        IslandArtworkRenderProbe.completeReminder["rapid-0"]?()
+        IslandArtworkRenderProbe.completeReminder["rapid-1"]?()
+        require(activities.reminders.map(\.id) == ["rapid-2"], "Rapid completion removed the wrong task or delayed its result")
+        try? await Task.sleep(for: .seconds(0.6))
+        require(pixels().bottom < originalBottom - 40, "Rapid completion left gaps in the list")
+        activities.setReminders(tasks("last", count: 1))
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.reminderWriteSucceeds = true
+        IslandArtworkRenderProbe.completeReminder["last-0"]?()
+        checkPixels = 0
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .seconds(0.016)); checkPixels = max(checkPixels, pixels().white)
+        }
+        require(activities.reminders.isEmpty && checkPixels > 2, "Last-task completion skipped its acknowledgement")
+        snapshot(reminderHost, "motion-reminder-empty")
+        print("PASS: persistent primary button, intermediate start/return/reversal frames, immediate timer actions, Reduce Motion, acknowledged/failed/duplicate/last reminder completion and smooth list reflow")
     }
 
     @MainActor static func verifyEnabledPages(output: URL) async {

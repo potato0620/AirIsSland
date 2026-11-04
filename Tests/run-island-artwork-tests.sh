@@ -24,20 +24,31 @@ s = s.replace('private func updateFromPlaybackState(', 'func updateFromPlaybackS
 p.write_text(s)
 p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
 s = p.read_text()
-token = 'TimerDurationForm(start: startTimer)'
+token = 'TimerDurationForm(duration: $duration)'
 assert token in s
-s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = startTimer }')
+s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = start }')
 token = '.buttonStyle(IslandActionButtonStyle(tint: tint, iconOnly: true))'
 assert token in s
 p.write_text(s.replace(token, token + '''.onAppear {
+                IslandArtworkRenderProbe.actionAppearances[icon, default: 0] += 1
+            }.onChange(of: icon, initial: true) { _, _ in
                 IslandArtworkRenderProbe.actionHandlers[icon] = action
             }.background {
                 GeometryReader { geometry in
                     Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
                         IslandArtworkRenderProbe.actionFrames[icon] = frame
+                    }.onChange(of: icon, initial: true) { _, _ in
+                        IslandArtworkRenderProbe.actionFrames[icon] = geometry.frame(in: .global)
                     }
                 }
             }'''))
+p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
+s = p.read_text()
+token = '.buttonStyle(ReminderRowButtonStyle()).allowsHitTesting(!completed)'
+assert token in s
+p.write_text(s.replace(token, token + '''.onAppear {
+            IslandArtworkRenderProbe.completeReminder[task.id] = finish
+        }'''))
 p = check / 'AirIsland/Presentation/IslandBackdrop.swift'
 s = p.read_text()
 p.write_text(s.replace('.clipped()', '''.clipped().background {
@@ -50,7 +61,17 @@ p.write_text(s.replace('.clipped()', '''.clipped().background {
 p = check / 'AirIsland/managers/RemindersActivityManager.swift'
 s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func connect()', start)
 s = s[:start] + '    private init() {}\n' + s[end:]
-p.write_text(s.replace('@Published private(set)', '@Published'))
+s = s.replace('@Published private(set)', '@Published')
+start = s.index('    @discardableResult func complete(id: String)')
+end = s.index('\n    private var canWrite:', start)
+s = s[:start] + '''    @discardableResult func complete(id: String) -> Bool {
+        IslandArtworkRenderProbe.reminderWrites.append(id)
+        guard IslandArtworkRenderProbe.reminderWriteSucceeds else { return false }
+        ActivityCoordinator.shared.setReminders(ActivityCoordinator.shared.reminders.filter { $0.id != id })
+        return true
+    }
+''' + s[end:]
+p.write_text(s)
 p = check / 'AirIsland/IslandWindowCoordinator.swift'
 s = p.read_text(); start = s.index('    private init() {')
 p.write_text(s[:start] + '    private init() {}\n}\n')

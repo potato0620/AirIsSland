@@ -127,16 +127,21 @@ final class RemindersActivityManager: ObservableObject {
         return save(reminder)
     }
 
-    func complete(id: String) {
-        guard canWrite else { return }
-        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { refresh(); return }
-        guard currentSelection.includes(listIdentifier: reminder.calendar?.calendarIdentifier ?? "") else { refresh(); return }
+    @discardableResult func complete(id: String) -> Bool {
+        guard canWrite else { return false }
+        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { refresh(); return false }
+        guard currentSelection.includes(listIdentifier: reminder.calendar?.calendarIdentifier ?? "") else { refresh(); return false }
         guard reminder.calendar.allowsContentModifications else {
             errorMessage = String(localized: "This reminders list is read-only.")
-            return
+            return false
         }
+        let wasCompleted = reminder.isCompleted
         reminder.isCompleted = true
-        _ = save(reminder)
+        guard save(reminder) else { reminder.isCompleted = wasCompleted; return false }
+        // Publish the committed write now; the existing refresh generation
+        // rejects reads that started before this save.
+        ActivityCoordinator.shared.setReminders(ActivityCoordinator.shared.reminders.filter { $0.id != id })
+        return true
     }
 
     private var canWrite: Bool {
