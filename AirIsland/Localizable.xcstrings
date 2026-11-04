@@ -19359,6 +19359,16 @@
           }
         }
       }
+    },
+    "Enable reminders" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用提醒事项"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

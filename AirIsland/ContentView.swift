@@ -18,6 +18,8 @@ struct ContentView: View {
     @EnvironmentObject var vm: IslandViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Default(.lightingEffect) private var musicBackgroundEnabled
+    @Default(.remindersActivityEnabled) private var remindersEnabled
+    @Default(.timerActivityEnabled) private var timerEnabled
 
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -35,6 +37,16 @@ struct ContentView: View {
     @ObservedObject private var activities = ActivityCoordinator.shared
 
     private var presentation: IslandPresentation { IslandPresentation(activity: activities.current) }
+
+    private var enabledPages: [IslandPage] {
+        IslandPage.allCases.filter { page in
+            switch page {
+            case .music: return true
+            case .reminders: return remindersEnabled
+            case .timer: return timerEnabled
+            }
+        }
+    }
 
     private var islandAnimation: Animation? {
         IslandAnimations.animation(reduceMotion: reduceMotion)
@@ -105,6 +117,9 @@ struct ContentView: View {
                     )
                 
                 mainLayout
+                    .onChange(of: enabledPages, initial: true) { _, _ in
+                        updateEnabledPages()
+                    }
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
@@ -230,14 +245,16 @@ struct ContentView: View {
         let dotTargetWidth: CGFloat = 18
         return VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
             HStack(spacing: 0) {
-                ForEach(IslandPage.allCases) { page in
-                    Button { selectPage(page) } label: {
-                        Circle()
-                            .fill(page == .timer && activities.timer?.phase == .finished ? Color.orange : pager.selection == page ? Color.white : Color.gray.opacity(0.6))
-                            .frame(width: dotSide, height: dotSide).frame(width: dotTargetWidth, height: 24)
+                if enabledPages.count > 1 {
+                    ForEach(enabledPages) { page in
+                        Button { selectPage(page) } label: {
+                            Circle()
+                                .fill(page == .timer && activities.timer?.phase == .finished ? Color.orange : pager.selection == page ? .white : Color.gray.opacity(0.6))
+                                .frame(width: dotSide, height: dotSide).frame(width: dotTargetWidth, height: 24)
+                        }
+                        .buttonStyle(.plain).accessibilityLabel(Text(page.title))
+                        .accessibilityAddTraits(pager.selection == page ? .isSelected : [])
                     }
-                    .buttonStyle(.plain).accessibilityLabel(Text(page.title))
-                    .accessibilityAddTraits(pager.selection == page ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
             }
@@ -245,17 +262,25 @@ struct ContentView: View {
             .frame(height: max(24, vm.effectiveClosedNotchHeight))
             if vm.notchState == .open {
                 HStack(spacing: 0) {
-                    expandedPage(.music, width: width) { NotchHomeView() }
-                    expandedPage(.reminders, width: width) { RemindersActivityPage(active: pager.selection == .reminders) }
-                    expandedPage(.timer, width: width) { TimerActivityPage(active: pager.selection == .timer) }
+                    ForEach(enabledPages) { page in
+                        expandedPage(page, width: width) {
+                            switch page {
+                            case .music: NotchHomeView()
+                            case .reminders: RemindersActivityPage(active: pager.selection == .reminders)
+                            case .timer: TimerActivityPage(active: pager.selection == .timer)
+                            }
+                        }
+                    }
                 }
-                    .frame(width: width * CGFloat(IslandPage.allCases.count),
+                    .frame(width: width * CGFloat(enabledPages.count),
                            height: expandedPageHeight, alignment: .leading)
                     .offset(x: -pagePosition * width)
                     .frame(width: width, height: expandedPageHeight, alignment: .leading)
                     .clipped()
                     .background {
-                        HorizontalPagingGesture(action: handleHorizontalGesture)
+                        if enabledPages.count > 1 {
+                            HorizontalPagingGesture(action: handleHorizontalGesture)
+                        }
                     }
             }
         }
@@ -287,30 +312,38 @@ struct ContentView: View {
     }
 
     private func selectPage(_ page: IslandPage) {
+        guard enabledPages.contains(page) else { return }
         activities.prefer(page.activityKind)
         guard page != pager.selection else { return }
         vm.isEditingActivity = false
         if page == .music { musicPageHasEntered = true }
         pager.select(page)
-        withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(page.rawValue) }
+        withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
         IslandHaptics.alignment()
     }
 
     private func showOpeningPage(_ page: IslandPage) {
-        musicPageHasEntered = page == .music
-        if pager.selection != page {
-            pager.select(page)
-            pagePosition = CGFloat(page.rawValue)
-        }
+        pager.updatePages(enabledPages)
+        pager.select(enabledPages.contains(page) ? page : enabledPages[0])
+        musicPageHasEntered = pager.selection == .music
+        pagePosition = CGFloat(pager.position)
+    }
+
+    private func updateEnabledPages() {
+        let previous = pager.selection
+        pager.updatePages(enabledPages)
+        if previous != pager.selection { vm.isEditingActivity = false }
+        if pager.selection == .music { musicPageHasEntered = true }
+        withTransaction(Transaction(animation: nil)) { pagePosition = CGFloat(pager.position) }
     }
 
     private func handleHorizontalGesture(_ delta: Double, _ seconds: Double, _ phase: NSEvent.Phase) {
-        guard vm.notchState == .open, !vm.isEditingActivity else { return }
+        guard vm.notchState == .open, !vm.isEditingActivity, enabledPages.count > 1 else { return }
         if phase == .began { musicPageHasEntered = true; pager.begin() }
         else if phase == .changed {
             if let page = pager.drag(delta: delta / vm.expandedNotchSize.width, seconds: seconds) {
                 activities.prefer(page.activityKind)
-                withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(page.rawValue) }
+                withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
                 IslandHaptics.alignment()
             } else {
                 guard pagePosition != CGFloat(pager.position) else { return }

@@ -72,6 +72,9 @@ s = s.replace(token, '''.onAppear {
                     .onChange(of: pager.selection, initial: true) { _, page in
                         IslandArtworkRenderProbe.selectedPage = page
                     }
+                    .onChange(of: enabledPages, initial: true) { _, pages in
+                        IslandArtworkRenderProbe.availablePages = pages
+                    }
                     ''' + token)
 token = '.clipShape(NotchShape(topCornerRadius: top, bottomCornerRadius: bottom))'
 assert token in s

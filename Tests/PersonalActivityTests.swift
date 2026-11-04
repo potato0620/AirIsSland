@@ -209,4 +209,56 @@ final class PersonalActivityTests: XCTestCase {
         _ = fast.drag(delta: 0.08, seconds: 0.008)
         XCTAssertGreaterThan(fast.position, slow.position)
     }
+
+    func testPagerSkipsDisabledMiddlePage() {
+        var pager = IslandPager()
+        pager.updatePages([.music, .timer])
+        pager.begin()
+        XCTAssertEqual(pager.drag(delta: 0.4, seconds: 0.02), .timer)
+        XCTAssertEqual(pager.position, 1)
+        pager.end()
+        pager.begin()
+        XCTAssertEqual(pager.drag(delta: -0.4, seconds: 0.02), .music)
+        XCTAssertEqual(pager.position, 0)
+        pager.select(.reminders)
+        XCTAssertEqual(pager.selection, .music)
+    }
+
+    func testPagerKeepsSelectionWhenEarlierPageIsRemoved() {
+        var pager = IslandPager()
+        pager.select(.timer)
+        pager.updatePages([.music, .timer])
+        XCTAssertEqual(pager.selection, .timer)
+        XCTAssertEqual(pager.position, 1)
+        pager.updatePages(IslandPage.allCases)
+        XCTAssertEqual(pager.selection, .timer)
+        XCTAssertEqual(pager.position, 2)
+    }
+
+    func testRemovingSelectedPageCancelsDragAndFallsBackToMusic() {
+        var pager = IslandPager()
+        pager.select(.reminders)
+        pager.begin()
+        XCTAssertNil(pager.drag(delta: 0.08, seconds: 0.1))
+        pager.updatePages([.music, .timer])
+        XCTAssertEqual(pager.selection, .music)
+        XCTAssertEqual(pager.position, 0)
+        XCTAssertNil(pager.drag(delta: 10, seconds: 0.01))
+        pager.end()
+        XCTAssertEqual(pager.position, 0)
+    }
+
+    func testSinglePageDoesNotMoveOrRespondToSwipes() {
+        var pager = IslandPager()
+        pager.updatePages([.music])
+        for delta in [-10.0, 10.0] {
+            pager.begin()
+            XCTAssertNil(pager.drag(delta: delta, seconds: 0.01))
+            pager.end()
+            XCTAssertEqual(pager.position, 0)
+            XCTAssertEqual(pager.selection, .music)
+        }
+        pager.updatePages([])
+        XCTAssertEqual(pager.pages, [.music])
+    }
 }

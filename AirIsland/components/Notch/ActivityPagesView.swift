@@ -79,14 +79,10 @@ struct TimerFinishedIcon: View {
 struct TimerActivityPage: View {
     var active = true
     @ObservedObject private var activities = ActivityCoordinator.shared
-    @Default(.timerActivityEnabled) private var enabled
 
     var body: some View {
         Group {
-            if !enabled {
-                Button("Enable timer") { enabled = true }
-                    .buttonStyle(IslandActionButtonStyle(tint: .orange))
-            } else if let timer = activities.timer {
+            if let timer = activities.timer {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 3) {

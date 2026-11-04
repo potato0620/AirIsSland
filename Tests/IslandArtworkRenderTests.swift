@@ -12,6 +12,7 @@ enum IslandArtworkRenderProbe {
     static var reduceMotion = false
     static var surfaceSize = CGSize.zero
     static var musicBackgroundFrame = CGRect.zero
+    static var availablePages: [IslandPage] = []
     static var selectedPage = IslandPage.music
     static var renderedPagePosition: CGFloat = 0
     static var selectPage: ((IslandPage) -> Void)?
@@ -62,6 +63,19 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--pages-only") {
+                await verifyEnabledPages(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--navigation-only") {
+                IslandArtworkRenderProbe.reduceMotion = true
+                await verifyEnabledPages(output: output)
+                await verifyResidentSelection(output: output)
+                await verifyPersonalActivityRuntime(output: output)
+                await verifyActionButtonSizes(output: output)
+                await verifyAlarmMotion(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--reminders-only") {
                 await renderRemindersPage(output: output)
                 exit(0)
@@ -112,6 +126,7 @@ private struct ActionButtonSizes: PreferenceKey {
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
             await verifyArtworkReadiness()
             await verifySeekingDoesNotAnnounceTrackChanges()
+            await verifyEnabledPages(output: output)
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
             await verifyActionButtonSizes(output: output)
@@ -300,7 +315,7 @@ private struct ActionButtonSizes: PreferenceKey {
         let automatic = await frames(ContentView(), name: "auto-expanded")
         require(automatic >= 8, "Alarm animation stopped inside the automatically expanded island")
         require(vm.notchState == .open && IslandArtworkRenderProbe.selectedPage == .timer
-                    && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
+                    && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandArtworkRenderProbe.availablePages.firstIndex(of: .timer) ?? 0)) < 0.01
                     && abs(IslandArtworkRenderProbe.surfaceSize.width - vm.expandedNotchSize.width) < 1
                     && abs(IslandArtworkRenderProbe.surfaceSize.height - vm.expandedNotchSize.height) < 1,
                 "Pending completion did not automatically use the full timer page")
@@ -546,7 +561,7 @@ private struct ActionButtonSizes: PreferenceKey {
                 if expanded {
                     if activities.current?.kind == .timerFinished && vm.notchState == .open
                         && IslandArtworkRenderProbe.selectedPage == .timer
-                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.001
+                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandArtworkRenderProbe.availablePages.firstIndex(of: .timer) ?? 0)) < 0.001
                         && abs(size.width - vm.expandedNotchSize.width) < 0.1
                         && abs(size.height - vm.expandedNotchSize.height) < 0.1 { break }
                 } else if vm.notchState == .closed && abs(size.height - vm.effectiveClosedNotchHeight) < 0.1 { break }
@@ -556,7 +571,7 @@ private struct ActionButtonSizes: PreferenceKey {
         func requireTimerPage(_ message: String) {
             require(activities.current?.kind == .timerFinished && vm.notchState == .open
                         && IslandArtworkRenderProbe.selectedPage == .timer
-                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandPage.timer.rawValue)) < 0.01
+                        && abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(IslandArtworkRenderProbe.availablePages.firstIndex(of: .timer) ?? 0)) < 0.01
                         && abs(IslandArtworkRenderProbe.surfaceSize.width - vm.expandedNotchSize.width) < 1
                         && abs(IslandArtworkRenderProbe.surfaceSize.height - vm.expandedNotchSize.height) < 1,
                     "\(message): state=\(vm.notchState), page=\(IslandArtworkRenderProbe.selectedPage), offset=\(IslandArtworkRenderProbe.renderedPagePosition), surface=\(IslandArtworkRenderProbe.surfaceSize)")
@@ -697,9 +712,125 @@ private struct ActionButtonSizes: PreferenceKey {
         print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
     }
 
+    @MainActor static func verifyEnabledPages(output: URL) async {
+        let timer = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let reminders = RemindersActivityManager.shared
+        let previousReminders = Defaults[.remindersActivityEnabled]
+        let previousTimer = Defaults[.timerActivityEnabled]
+        let previousAuthorization = reminders.authorized
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        IslandArtworkRenderProbe.reduceMotion = false
+        timer.cancel()
+        activities.setMusicActive(true)
+        reminders.authorized = true // Fixture only; never connects EventKit.
+        defer {
+            timer.cancel()
+            reminders.authorized = previousAuthorization
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+            Defaults[.remindersActivityEnabled] = previousReminders
+            Defaults[.timerActivityEnabled] = previousTimer
+        }
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.hideOnClosed = false
+        defer { vm.destroy() }
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        func capture(_ name: String, dots: Int) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let leading = (host.bounds.width - IslandArtworkRenderProbe.surfaceSize.width) / 2
+            var runs = 0, previous = false
+            for x in Int((leading + 10) * scale)..<Int((leading + 100) * scale) {
+                let bright = (Int(4 * scale)..<Int(24 * scale)).contains { y in
+                    let p = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return max(p.redComponent, p.greenComponent, p.blueComponent) > 0.2
+                }
+                if bright && !previous { runs += 1 }
+                previous = bright
+            }
+            require(runs == dots, "Wrong visible pagination dots in \(name): expected \(dots), found \(runs)")
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+        }
+        for (r, t, pages): (Bool, Bool, [IslandPage]) in [
+            (true, true, [.music, .reminders, .timer]), (true, false, [.music, .reminders]),
+            (false, true, [.music, .timer]), (false, false, [.music])
+        ] {
+            Defaults[.remindersActivityEnabled] = r
+            Defaults[.timerActivityEnabled] = t
+            try? await Task.sleep(for: .seconds(0.3))
+            require(IslandArtworkRenderProbe.availablePages == pages, "Disabled page remained in the production pager")
+            capture("enabled-pages-\(r)-\(t)", dots: pages.count > 1 ? pages.count : 0)
+        }
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.timerActivityEnabled] = true
+        try? await Task.sleep(for: .seconds(0.3))
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.3))
+        IslandArtworkRenderProbe.actionHandlers["plus"]?()
+        try? await Task.sleep(for: .seconds(0.1))
+        require(vm.isEditingActivity, "Fixture failed to enter reminder editing")
+        Defaults[.remindersActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.3))
+        require(!vm.isEditingActivity && IslandArtworkRenderProbe.selectedPage == .music
+                    && abs(IslandArtworkRenderProbe.renderedPagePosition) < 0.01,
+                "Disabling the edited page left keyboard editing or a stale offset")
+        // Ending explicit editing follows the existing hover-close behavior.
+        // Reopen before exercising the next gesture.
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+        IslandArtworkRenderProbe.horizontalGesture?(vm.expandedNotchSize.width / 2, 0.02, .changed)
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+        try? await Task.sleep(for: .seconds(0.3))
+        require(IslandArtworkRenderProbe.selectedPage == .timer
+                    && abs(IslandArtworkRenderProbe.renderedPagePosition - 1) < 0.01,
+                "Swipe did not skip the disabled middle page")
+        capture("enabled-pages-music-timer", dots: 2)
+        timer.start(duration: 1500)
+        Defaults[.timerActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.3))
+        require(activities.timer == nil && activities.current?.kind == .music
+                    && IslandArtworkRenderProbe.selectedPage == .music,
+                "Disabling the timer retained a countdown or its page")
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+        IslandArtworkRenderProbe.horizontalGesture?(1000, 0.02, .changed)
+        IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(abs(IslandArtworkRenderProbe.renderedPagePosition) < 0.01, "Single page still moved on swipe")
+        capture("enabled-pages-only-music", dots: 0)
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.timerActivityEnabled] = true
+        try? await Task.sleep(for: .seconds(0.3))
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.7))
+        vm.open()
+        for index in 0..<30 {
+            try? await Task.sleep(for: .seconds(0.016))
+            if index == 2 { Defaults[.remindersActivityEnabled] = false }
+            if index == 3 {
+                require(IslandArtworkRenderProbe.surfaceSize.height < expandedNotchHeight - 5,
+                        "Removing a page snapped an in-progress island expansion")
+            }
+        }
+        require(IslandArtworkRenderProbe.availablePages == [.music, .timer], "Page failed to re-enable or remove again")
+        print("PASS: enabled-page combinations, rendered dot counts, editing removal, skipped pages, timer cancellation, single-page swipe and continuous expansion")
+    }
+
     @MainActor static func verifyResidentSelection(output: URL) async {
         let activities = ActivityCoordinator.shared
         let source = TimerActivityManager.shared
+        let previousReminders = Defaults[.remindersActivityEnabled]
+        Defaults[.remindersActivityEnabled] = true
         let previousLighting = Defaults[.lightingEffect]
         Defaults[.lightingEffect] = true
         let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
@@ -716,7 +847,7 @@ private struct ActionButtonSizes: PreferenceKey {
             Defaults[.lightingEffect] = previousLighting
             source.cancel(); source.stop()
             activities.setReminders([])
-            Defaults[.remindersActivityEnabled] = false
+            Defaults[.remindersActivityEnabled] = previousReminders
             for kind in IslandActivityKind.allCases where kind != .music { activities.end(kind) }
             activities.setMusicActive(false)
             activities.setMusicActive(true)

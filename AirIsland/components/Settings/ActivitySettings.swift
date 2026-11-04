@@ -62,7 +62,7 @@ struct RemindersActivitySettings: View {
     var body: some View {
         Form {
             Section {
-                Defaults.Toggle(key: .remindersActivityEnabled) { Text("Sync Apple Reminders") }
+                Defaults.Toggle(key: .remindersActivityEnabled) { Text("Enable reminders") }
                 if source.authorized && enabled {
                     Picker("Show list", selection: $listIdentifier) {
                         Text("All tasks").tag("")
@@ -75,12 +75,14 @@ struct RemindersActivitySettings: View {
                         Text(error).settingsNoteStyle()
                     }
                 }
-                Text(source.authorized ? LocalizedStringKey("Reminders access granted") : LocalizedStringKey("Reminders access not granted"))
-                    .settingsNoteStyle()
-                Button(source.accessDenied ? LocalizedStringKey("Open Privacy Settings") : LocalizedStringKey("Connect Reminders")) {
-                    if source.accessDenied { source.openPrivacySettings() }
-                    else { Task { await source.connect() } }
-                }.disabled(source.requesting)
+                if enabled {
+                    Text(source.authorized ? LocalizedStringKey("Reminders access granted") : LocalizedStringKey("Reminders access not granted"))
+                        .settingsNoteStyle()
+                    Button(source.accessDenied ? LocalizedStringKey("Open Privacy Settings") : LocalizedStringKey("Connect Reminders")) {
+                        if source.accessDenied { source.openPrivacySettings() }
+                        else { Task { await source.connect() } }
+                    }.disabled(source.requesting)
+                }
             }
         }
         .task { source.refresh() }
