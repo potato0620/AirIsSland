@@ -328,6 +328,10 @@ struct ContentView: View {
                             bottomCornerRadius: Defaults[.cornerRadiusScaling] ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom))
                 }
             }
+            // Resolve animated content inside its page before the pager moves it.
+            // Numeric transitions must never draw into an adjacent activity.
+            .compositingGroup()
+            .clipped()
             .accessibilityHidden(pager.selection != page)
             .allowsHitTesting(pager.selection == page)
             .disabled(pager.selection != page)

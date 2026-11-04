@@ -68,6 +68,10 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--personal-paging-only") {
+                await verifyPersonalPaging(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--spectrum-only") {
                 await verifySpectrum(output: output)
                 exit(0)
@@ -144,6 +148,7 @@ private struct ActionButtonSizes: PreferenceKey {
             await verifyArtworkReadiness()
             await verifySeekingDoesNotAnnounceTrackChanges()
             await verifyMusicEntry(output: output)
+            await verifyPersonalPaging(output: output)
             await verifyEnabledPages(output: output)
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
@@ -1037,6 +1042,176 @@ private struct ActionButtonSizes: PreferenceKey {
                 "Disabling the timer retained a deadline or its stored session")
         Defaults[.timerActivityEnabled] = true
         print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
+    }
+
+    @MainActor static func verifyPersonalPaging(output: URL) async {
+        let activities = ActivityCoordinator.shared
+        let source = TimerActivityManager.shared
+        let reminders = RemindersActivityManager.shared
+        let previousAuthorization = reminders.authorized
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        let previousTimerEnabled = Defaults[.timerActivityEnabled]
+        let previousRemindersEnabled = Defaults[.remindersActivityEnabled]
+        Defaults[.timerActivityEnabled] = true
+        Defaults[.remindersActivityEnabled] = true
+        reminders.authorized = true
+        activities.setReminders([ReminderTask(id: "paging-fixture", title: "Task", dueDate: nil)])
+        IslandArtworkRenderProbe.reduceMotion = false
+        source.cancel()
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm).preferredColorScheme(.dark).background(Color.white))
+        window.contentView = host; window.orderBack(nil)
+        defer {
+            source.cancel(); activities.setReminders([]); reminders.authorized = previousAuthorization
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+            Defaults[.timerActivityEnabled] = previousTimerEnabled
+            Defaults[.remindersActivityEnabled] = previousRemindersEnabled
+            window.orderOut(nil); window.contentView = nil; vm.destroy()
+        }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.7))
+        var captured = 0
+        var digitMask: [CGPoint] = []
+        var checkDigitPosition = false
+        func capture(_ phase: String) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let width = vm.expandedNotchSize.width
+            let left = (host.bounds.width - width) / 2
+            let position = IslandArtworkRenderProbe.renderedPagePosition
+            let timerLeft = left + (2 - position) * width
+            let reminderLeft = left + (1 - position) * width
+            // NotchShape's straight sides sit inside its top shoulders.
+            // These samples are below the shoulders and above the bottom arcs.
+            let surfaceLeft = (host.bounds.width - IslandArtworkRenderProbe.surfaceSize.width) / 2 + cornerRadiusInsets.opened.top
+            let surfaceRight = host.bounds.width - surfaceLeft
+            let rgba = rep.bitsPerSample == 8 && rep.samplesPerPixel == 4 && !rep.isPlanar
+                && (rep.bitmapFormat == [] || rep.bitmapFormat == .alphaNonpremultiplied)
+            let bytes = rep.bitmapData!
+            func isOrange(_ x: Int, _ y: Int) -> Bool {
+                guard x >= 0, x < rep.pixelsWide, y >= 0, y < rep.pixelsHigh else { return false }
+                let r: Double, g: Double, b: Double
+                if rgba {
+                    let offset = y * rep.bytesPerRow + x * 4
+                    r = Double(bytes[offset]) / 255; g = Double(bytes[offset + 1]) / 255; b = Double(bytes[offset + 2]) / 255
+                } else {
+                    let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    r = c.redComponent; g = c.greenComponent; b = c.blueComponent
+                }
+                return r > 0.5 && g > 0.2 && g < 0.85 && b < 0.18
+            }
+            if phase == "reference" {
+                // The leading '2' stays unchanged while seconds roll. Track its
+                // actual pixels, not merely a layout frame or absence of leaks.
+                let xs = Int((left + 8) * scale)..<Int((left + 100) * scale)
+                let ys = Int(60 * scale)..<Int(130 * scale)
+                let first = xs.first { x in ys.contains { isOrange(x, $0) } }!
+                digitMask = (first..<first + Int(10 * scale)).flatMap { x in
+                    ys.compactMap { y in isOrange(x, y) ? CGPoint(x: CGFloat(x) - timerLeft * scale, y: CGFloat(y)) : nil }
+                }
+                require(digitMask.count > 30, "Missing stable timer digit reference")
+            }
+            var expectedDigitPixels = 0, matchedDigitPixels = 0
+            if checkDigitPosition {
+                for point in digitMask {
+                    let x = Int((timerLeft * scale + point.x).rounded()), y = Int(point.y)
+                    // The outer island mask can be narrower than the page's
+                    // layout frame. Clipped pixels must not count as missing.
+                    guard CGFloat(x) >= surfaceLeft * scale + 2, CGFloat(x) < surfaceRight * scale - 2 else { continue }
+                    expectedDigitPixels += 1
+                    let tolerance = Int(2 * scale)
+                    if (-tolerance...tolerance).contains(where: { dx in (-tolerance...tolerance).contains { dy in isOrange(x + dx, y + dy) } }) {
+                        matchedDigitPixels += 1
+                    }
+                }
+            }
+            let displacedDigit = expectedDigitPixels > 30 && Double(matchedDigitPixels) / Double(expectedDigitPixels) < 0.8
+            var timerLeaks = 0, reminderLeaks = 0
+            for y in Int((max(24, vm.effectiveClosedNotchHeight) + 10) * scale)..<Int(185 * scale) {
+                for x in Int(left * scale)..<Int((left + width) * scale) {
+                    let r: Double, g: Double, b: Double
+                    if rgba {
+                        let offset = y * rep.bytesPerRow + x * 4
+                        r = Double(bytes[offset]) / 255; g = Double(bytes[offset + 1]) / 255; b = Double(bytes[offset + 2]) / 255
+                    } else {
+                        let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                        r = c.redComponent; g = c.greenComponent; b = c.blueComponent
+                    }
+                    let px = CGFloat(x) / scale
+                    if r > 0.5 && g > 0.2 && g < 0.85 && b < 0.18 && (px < timerLeft - 2 || px > timerLeft + width + 2) { timerLeaks += 1 }
+                    if b > 0.5 && g > 0.2 && r < 0.2 && (px < reminderLeft - 2 || px > reminderLeft + width + 2) { reminderLeaks += 1 }
+                }
+            }
+            if captured % 5 == 0 || timerLeaks > 0 || reminderLeaks > 0 || displacedDigit {
+                try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("personal-paging-\(phase)-\(captured).png"))
+            }
+            captured += 1
+            require(timerLeaks == 0 && reminderLeaks == 0,
+                    "Adjacent pages overlapped in \(phase): timer pixels=\(timerLeaks), reminder pixels=\(reminderLeaks), page=\(position)")
+            require(!displacedDigit,
+                    "Countdown detached from its page in \(phase): matched \(matchedDigitPixels)/\(expectedDigitPixels) digit pixels, page=\(position)")
+        }
+        for starting in [false, true] {
+            source.cancel()
+            if !starting { source.start(duration: 1500) }
+            IslandArtworkRenderProbe.selectPage?(.timer)
+            try? await Task.sleep(for: .seconds(0.7))
+            checkDigitPosition = !starting
+            if !starting { capture("reference") }
+            if starting {
+                IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+                try? await Task.sleep(for: .seconds(0.04))
+            }
+            for (from, to, direction): (IslandPage, IslandPage, Double) in [(.timer, .reminders, -1), (.reminders, .timer, 1)] {
+                IslandArtworkRenderProbe.selectPage?(from)
+                try? await Task.sleep(for: .seconds(starting && from == .timer ? 0.015 : 0.55))
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.1, .began)
+                var committed = false
+                for _ in 0..<32 {
+                    IslandArtworkRenderProbe.horizontalGesture?(direction * vm.expandedNotchSize.width * 0.015, 0.1, .changed)
+                    try? await Task.sleep(for: .seconds(0.08))
+                    capture("\(from)-to-\(to)-drag")
+                    if IslandArtworkRenderProbe.selectedPage == to { committed = true; break }
+                }
+                require(committed, "Slow paging never crossed its existing threshold")
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+                for _ in 0..<30 {
+                    try? await Task.sleep(for: .seconds(0.016))
+                    capture("\(from)-to-\(to)-settle")
+                }
+                require(activities.timer?.phase == .running, "Paging changed countdown state")
+            }
+        }
+        // Releasing before the threshold must return without exposing the other
+        // page's independently animated content. Cover both motion preferences.
+        for reducedMotion in [false, true] {
+            checkDigitPosition = true
+            IslandArtworkRenderProbe.reduceMotion = reducedMotion
+            for (from, direction): (IslandPage, Double) in [(.timer, -1), (.reminders, 1)] {
+                IslandArtworkRenderProbe.selectPage?(from)
+                try? await Task.sleep(for: .seconds(0.5))
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.1, .began)
+                for _ in 0..<6 {
+                    IslandArtworkRenderProbe.horizontalGesture?(direction * vm.expandedNotchSize.width * 0.015, 0.1, .changed)
+                    try? await Task.sleep(for: .seconds(0.08))
+                    capture("\(from)-cancelled-drag-reduced\(reducedMotion)")
+                }
+                require(IslandArtworkRenderProbe.selectedPage == from, "Sub-threshold swipe selected a different page")
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+                for _ in 0..<25 {
+                    try? await Task.sleep(for: .seconds(0.016))
+                    capture("\(from)-return-reduced\(reducedMotion)")
+                }
+                require(abs(IslandArtworkRenderProbe.renderedPagePosition - CGFloat(from.rawValue)) < 0.01,
+                        "Cancelled swipe did not return to its page")
+            }
+        }
+        print("PASS: running/starting timer and reminders stay inside their own page in both slow threshold transitions, clock ticks and cancelled returns, including Reduce Motion; countdown stays running (isolated fixtures)")
     }
 
     @MainActor static func verifyPersonalMotion(output: URL) async {

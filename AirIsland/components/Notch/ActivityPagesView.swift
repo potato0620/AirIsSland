@@ -207,6 +207,8 @@ private struct TimerInteractionSurface: View, Animatable {
             .lineLimit(1).minimumScaleFactor(0.85)
             .contentTransition(.numericText(countsDown: true))
             .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: max(0, Int(ceil(remaining))))
+            // Keep rolling digits in local coordinates while their page moves.
+            .geometryGroup()
     }
 
     private func status(progress p: CGFloat) -> some View {
