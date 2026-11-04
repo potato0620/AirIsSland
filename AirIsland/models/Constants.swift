@@ -50,6 +50,7 @@ extension Defaults.Keys {
     
     // MARK: Media playback
     static let musicLiveActivityEnabled = Key<Bool>("musicLiveActivityEnabled", default: true)
+    static let realTimeSpectrum = Key<Bool>("realTimeSpectrum", default: false)
     static let enableSneakPeek = Key<Bool>("enableSneakPeek", default: false)
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let timerActivityEnabled = Key<Bool>("timerActivityEnabled", default: true)

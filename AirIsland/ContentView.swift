@@ -34,6 +34,7 @@ struct ContentView: View {
     @State private var musicPageHasEntered = true
     @State private var artworkPagingIsInteractive = false
     @State private var measuredCompactWidth: CGFloat = 0
+    @State private var spectrumConsumer = UUID()
 
     @ObservedObject private var activities = ActivityCoordinator.shared
 
@@ -69,6 +70,15 @@ struct ContentView: View {
             return max(24, vm.closedNotchSize.height) + (isHovering ? 8 : 0)
         }
         return vm.effectiveClosedNotchHeight
+    }
+
+    private enum SpectrumDisplay { case hidden, compact, expanded }
+    private var spectrumDisplay: SpectrumDisplay {
+        guard !reduceMotion else { return .hidden }
+        if vm.notchState == .open {
+            return pager.selection == .music && !musicManager.songTitle.isEmpty ? .expanded : .hidden
+        }
+        return !vm.hideOnClosed && vm.effectiveClosedNotchHeight > 12 && presentation.showsMusicSpectrum ? .compact : .hidden
     }
 
     var body: some View {
@@ -121,6 +131,11 @@ struct ContentView: View {
                     )
                 
                 mainLayout
+                    .onChange(of: spectrumDisplay, initial: true) { _, display in
+                        activities.setSpectrumVisible(display != .hidden, consumer: spectrumConsumer,
+                                                      expanded: display == .expanded)
+                    }
+                    .onDisappear { activities.setSpectrumVisible(false, consumer: spectrumConsumer) }
                     .onChange(of: enabledPages, initial: true) { _, _ in
                         updateEnabledPages()
                     }
@@ -272,7 +287,7 @@ struct ContentView: View {
                     ForEach(enabledPages) { page in
                         expandedPage(page, width: width) {
                             switch page {
-                            case .music: NotchHomeView()
+                            case .music: NotchHomeView(active: pager.selection == .music)
                             case .reminders: RemindersActivityPage(active: pager.selection == .reminders)
                             case .timer: TimerActivityPage(active: pager.selection == .timer)
                             }
@@ -410,29 +425,19 @@ struct ContentView: View {
                             + -cornerRadiusInsets.closed.top
                 )
 
-            HStack {
-                    Rectangle()
-                        .fill(
-                            Color(nsColor: musicManager.avgColor).gradient
-                        )
-                        .frame(width: 16, height: 12)
-                        .mask {
-                            AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && vm.notchState == .closed))
-                                .frame(width: 16, height: 12)
-                        }
-
+            if presentation.showsMusicSpectrum {
+                let spectrumHeight = max(0, vm.effectiveClosedNotchHeight - 12)
+                Rectangle()
+                    .fill(Color(nsColor: musicManager.avgColor).gradient)
+                    .frame(width: 20, height: spectrumHeight)
+                    .mask {
+                        AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && vm.notchState == .closed),
+                                          maximumHeight: spectrumHeight)
+                            .frame(width: 20, height: spectrumHeight)
+                    }
+                    .frame(width: max(20, vm.effectiveClosedNotchHeight - 12),
+                           height: max(0, vm.effectiveClosedNotchHeight - 12), alignment: .trailing)
             }
-            .frame(
-                width: max(
-                    0,
-                    vm.effectiveClosedNotchHeight - 12
-                ),
-                height: max(
-                    0,
-                    vm.effectiveClosedNotchHeight - 12
-                ),
-                alignment: .trailing
-            )
         }
         .frame(
             height: vm.effectiveClosedNotchHeight,

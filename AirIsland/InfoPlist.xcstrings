@@ -4,15 +4,52 @@
     "NSRemindersFullAccessUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete." } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。"
+          }
+        }
       }
     },
     "NSRemindersUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete." } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland accesses Reminders to show incomplete tasks from the lists you choose and sync the tasks you add or complete."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。"
+          }
+        }
+      }
+    },
+    "NSAudioCaptureUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland captures the current player's audio to display a live music spectrum. Audio is analyzed on this Mac and is never saved or uploaded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirIsland 需要采集当前播放器输出的声音，以显示实时音乐频谱。音频仅在本机分析，不会保存或上传。"
+          }
+        }
       }
     }
   },

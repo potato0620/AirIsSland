@@ -123,6 +123,8 @@ struct ActivitySettings: View {
 }
 
 struct MusicActivitySettings: View {
+    @ObservedObject private var spectrum = MusicSpectrumSource.shared
+    @Default(.realTimeSpectrum) private var realTimeSpectrum
     @Default(.musicLiveActivityEnabled) private var musicLiveActivityEnabled
     @Default(.waitInterval) var waitInterval
     @Default(.enableSneakPeek) private var enableSneakPeek
@@ -151,6 +153,25 @@ struct MusicActivitySettings: View {
                 Text("Media playback live activity")
             }
             Section {
+                if #available(macOS 14.2, *) {
+                    Toggle("Real-time music spectrum", isOn: $realTimeSpectrum)
+                    if realTimeSpectrum {
+                        Text("Analyzes only the current player's audio. macOS asks for system audio recording access when the spectrum is visible. Audio is not saved or uploaded.")
+                            .settingsNoteStyle()
+                        if case .failed = spectrum.status {
+                            Text("Audio capture could not start. Allow AirIsland in System Settings > Privacy & Security > Screen & System Audio Recording.")
+                                .settingsNoteStyle()
+                            Button("Retry audio capture") { spectrum.retry() }
+                            Button("Open Privacy Settings") {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text("Real-time music spectrum requires macOS 14.2 or later.").settingsNoteStyle()
+                }
                 Defaults.Toggle(key: .lightingEffect) {
                     Text("Music background")
                 }

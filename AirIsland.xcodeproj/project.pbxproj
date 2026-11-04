@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        DCC8C72D8E88CD680799C570 = {isa = PBXBuildFile; fileRef = DE8F57599015BA519247267F; };
+        7CE9A2C32520A7DF77A9FEE1 = {isa = PBXBuildFile; fileRef = 6BF48D83F815A8BFDF02115A; };
+        721F8C9160658DE5B9FA0A3A = {isa = PBXBuildFile; fileRef = 535389686092EC64C2AE8812; };
         A1A1A2000000000000000017 = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000017; };
         A1A1A2000000000000000010 /* PersonalActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000010; };
         A1A1A2000000000000000011 /* IslandPager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000011; };
@@ -137,6 +140,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        DE8F57599015BA519247267F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "managers/MusicSpectrumSource.swift"; sourceTree = "<group>"; };
+        6BF48D83F815A8BFDF02115A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "managers/MusicSpectrumAnalyzer.swift"; sourceTree = "<group>"; };
+        535389686092EC64C2AE8812 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Activities/MusicSpectrum.swift"; sourceTree = "<group>"; };
         A1A1A1000000000000000017 = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
         A1A1A1000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Activities/PersonalActivities.swift"; sourceTree = "<group>"; };
         A1A1A1000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Presentation/IslandPager.swift"; sourceTree = "<group>"; };
@@ -385,7 +391,10 @@
 				B15063502C63D3F600EBB0E3 /* extensions */,
 				1471639B2C5D362F0068B555 /* components */,
 				14CEF4152C5CAED300855D72 /* AirIslandApp.swift */,
-				A1A1A1000000000000000000 /* IslandActivity.swift */,
+				535389686092EC64C2AE8812,
+                6BF48D83F815A8BFDF02115A,
+                DE8F57599015BA519247267F,
+                A1A1A1000000000000000000 /* IslandActivity.swift */,
                 A1A1A1000000000000000010,
                 A1A1A1000000000000000017,
                 A1A1A1000000000000000011,
@@ -693,7 +702,10 @@
 			files = (
 				28D929DF6FCB0549E09D4924 /* VisualEffectView.swift in Sources */,
 				5955950D2E900ED800C66711 /* ApplicationRelauncher.swift in Sources */,
-				147163982C5D35B70068B555 /* MusicVisualizer.swift in Sources */,
+				721F8C9160658DE5B9FA0A3A,
+                7CE9A2C32520A7DF77A9FEE1,
+                DCC8C72D8E88CD680799C570,
+                147163982C5D35B70068B555 /* MusicVisualizer.swift in Sources */,
 				11CC44A22CEE614100C7244B /* IslandWindowCoordinator.swift in Sources */,
 				B186543C2C6F49AE000B926A /* ShortcutConstants.swift in Sources */,
 				11CFC65B2E097E9D00748C80 /* WelcomeView.swift in Sources */,

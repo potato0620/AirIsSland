@@ -66,6 +66,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MusicManager.shared.destroy()
         TimerActivityManager.shared.stop()
+        MusicSpectrumSource.shared.stop()
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
     }
@@ -191,6 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         _ = TimerActivityManager.shared
         _ = RemindersActivityManager.shared
+        _ = MusicSpectrumSource.shared
 
         NotificationCenter.default.addObserver(
             self,

@@ -10,12 +10,26 @@ final class ActivityCoordinator: ObservableObject {
     @Published private(set) var current: IslandActivity?
     @Published private(set) var timer: TimerSession?
     @Published private(set) var reminders: [ReminderTask] = []
+    @Published private(set) var spectrumRequest: MusicSpectrumRequest?
+    // A separate payload publisher avoids reevaluating the whole island at audio cadence.
+    private let spectrumValues = CurrentValueSubject<[Double], Never>(MusicSpectrumState.quiet)
+    var spectrumLevels: AnyPublisher<[Double], Never> { spectrumValues.eraseToAnyPublisher() }
+    var spectrumSnapshot: [Double] { spectrum.levels }
+    private var spectrum = MusicSpectrumState()
+    // The value distinguishes an explicitly visible music page from compact activity content.
+    private var spectrumConsumers: [UUID: Bool] = [:]
+    private var spectrumBundle: String?
+    private var spectrumPlaying = false
+    private var spectrumTrack: UUID?
     private var scheduler = ActivityScheduler()
     private var expiryTask: Task<Void, Never>?
     private var preferences = Set<AnyCancellable>()
     private var musicIsActive = false
 
     private init() {
+        Defaults.publisher(.realTimeSpectrum).sink { [weak self] _ in
+            Task { @MainActor in self?.refreshSpectrum() }
+        }.store(in: &preferences)
         Defaults.publisher(.timerActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in if !Defaults[.timerActivityEnabled] { self?.setTimer(nil) } }
         }.store(in: &preferences)
@@ -50,6 +64,35 @@ final class ActivityCoordinator: ObservableObject {
         musicIsActive = active
         refreshMusic()
         if !active { end(.musicChange) }
+    }
+
+    func setMusicSpectrumSource(bundleIdentifier: String?, playing: Bool, trackIdentifier: UUID? = nil) {
+        spectrumBundle = bundleIdentifier
+        spectrumPlaying = playing
+        spectrumTrack = trackIdentifier
+        refreshSpectrum()
+    }
+
+    func setSpectrumVisible(_ visible: Bool, consumer: UUID, expanded: Bool = false) {
+        if visible { spectrumConsumers[consumer] = expanded } else { spectrumConsumers.removeValue(forKey: consumer) }
+        refreshSpectrum()
+    }
+
+    func receiveSpectrum(_ values: [Double], for request: MusicSpectrumRequest) {
+        guard spectrum.receive(values, for: request) else { return }
+        spectrumValues.send(spectrum.levels)
+    }
+
+    private func refreshSpectrum() {
+        let expandedMusic = spectrumConsumers.values.contains(true)
+        let compactMusic = current?.kind == .music && spectrumConsumers.values.contains(false)
+        spectrum.update(enabled: Defaults[.realTimeSpectrum] && (Defaults[.musicLiveActivityEnabled] || expandedMusic),
+                        playing: spectrumPlaying && musicIsActive, bundleIdentifier: spectrumBundle, trackIdentifier: spectrumTrack,
+                        visible: compactMusic || expandedMusic)
+        if spectrumRequest != spectrum.request {
+            spectrumRequest = spectrum.request
+            spectrumValues.send(MusicSpectrumState.quiet)
+        }
     }
 
     func post(_ kind: IslandActivityKind, value: Double = 0, icon: String = "") {
@@ -120,6 +163,7 @@ final class ActivityCoordinator: ObservableObject {
         scheduler.expire(at: timestamp)
         let selected = scheduler.current(at: timestamp)
         if current != selected { current = selected }
+        refreshSpectrum()
         expiryTask?.cancel()
         guard let expiry = scheduler.nextExpiry else { return }
         expiryTask = Task { [weak self] in

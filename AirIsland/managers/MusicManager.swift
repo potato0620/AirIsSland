@@ -88,6 +88,7 @@ class MusicManager: ObservableObject {
         controllerCancellables.removeAll()
 
         ActivityCoordinator.shared.setMusicActive(false)
+        ActivityCoordinator.shared.setMusicSpectrumSource(bundleIdentifier: nil, playing: false)
         // Release active controller
         activeController = nil
     }
@@ -237,6 +238,9 @@ class MusicManager: ObservableObject {
         }
         
         ActivityCoordinator.shared.setMusicActive(isActive || !isPlayerIdle)
+        ActivityCoordinator.shared.setMusicSpectrumSource(bundleIdentifier: state.bundleIdentifier,
+                                                         playing: state.isPlaying && !state.isChangingTrack,
+                                                         trackIdentifier: trackIdentifier)
         self.timestampDate = state.lastUpdated
     }
 

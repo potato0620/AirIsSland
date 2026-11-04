@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>AirIsland 需要采集当前播放器输出的声音，以显示实时音乐频谱。音频仅在本机分析，不会保存或上传。</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。</string>
 	<key>NSRemindersUsageDescription</key>

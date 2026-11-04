@@ -56,6 +56,7 @@ private struct ActionButtonSizes: PreferenceKey {
             Defaults[.enableShadow] = false
             Defaults[.cornerRadiusScaling] = true
             Defaults[.enableHaptics] = false
+            Defaults[.realTimeSpectrum] = false
             Defaults[.remindersActivityEnabled] = false
             verifyDisplayWidths()
             let music = MusicManager.shared
@@ -67,6 +68,10 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--spectrum-only") {
+                await verifySpectrum(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--music-entry-only") {
                 await verifyMusicEntry(output: output)
                 exit(0)
@@ -149,6 +154,160 @@ private struct ActionButtonSizes: PreferenceKey {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func verifySpectrum(output: URL) async {
+        let previousReminders = Defaults[.remindersActivityEnabled]
+        let previousTimer = Defaults[.timerActivityEnabled]
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.timerActivityEnabled] = true
+        let activities = ActivityCoordinator.shared
+        let timer = TimerActivityManager.shared
+        timer.cancel()
+        for kind in IslandActivityKind.allCases where kind != .music { activities.end(kind) }
+        activities.setMusicActive(true)
+        activities.setMusicSpectrumSource(bundleIdentifier: "fixture.player", playing: true, trackIdentifier: UUID())
+        let screen = NSScreen.screens[0]
+        let vm = IslandViewModel(screenUUID: screen.displayUUID)
+        vm.hideOnClosed = false
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer {
+            Defaults[.realTimeSpectrum] = false
+            Defaults[.remindersActivityEnabled] = previousReminders
+            Defaults[.timerActivityEnabled] = previousTimer
+            timer.cancel()
+            window.orderOut(nil); window.contentView = nil; vm.destroy()
+        }
+        try? await Task.sleep(for: .seconds(0.3))
+        require(activities.spectrumRequest == nil, "Spectrum captured before explicit opt-in")
+        Defaults[.realTimeSpectrum] = true
+        try? await Task.sleep(for: .seconds(0.1))
+        let lease = activities.spectrumRequest!
+        let firstSelectPage = IslandArtworkRenderProbe.selectPage!
+        activities.receiveSpectrum([0.2, 0.4, 0.6, 0.8, 1, 0.3], for: lease)
+        try? await Task.sleep(for: .seconds(0.1))
+        host.layoutSubtreeIfNeeded()
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("spectrum-six-bands.png"))
+        let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+        let right = (host.bounds.width + IslandArtworkRenderProbe.surfaceSize.width) / 2
+        var bands: [Int] = [], currentHeight = 0
+        for x in Int((right - 48) * scale)..<Int((right - 2) * scale) {
+            var height = 0
+            for y in 0..<Int(vm.effectiveClosedNotchHeight * scale) {
+                let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                if max(c.redComponent, c.greenComponent, c.blueComponent) > 0.3 { height += 1 }
+            }
+            if height > 0 { currentHeight = max(currentHeight, height) }
+            else if currentHeight > 0 { bands.append(currentHeight); currentHeight = 0 }
+        }
+        if currentHeight > 0 { bands.append(currentHeight) }
+        require(bands.count == 6 && Set(bands).count >= 4, "Rendered spectrum did not contain six independently driven bars: \(bands)")
+        require(abs(CGFloat(bands.max()!) / scale - (vm.effectiveClosedNotchHeight - 12)) < 2,
+                "Compact spectrum ceiling is shorter than its cover")
+
+        let originalArtist = MusicManager.shared.artistName
+        MusicManager.shared.artistName = "" // Isolate the trailing spectrum pixels from artist glyphs.
+        activities.post(.musicChange)
+        try? await Task.sleep(for: .seconds(0.6))
+        require(IslandPresentation(activity: activities.current).showsMusicPeek && activities.spectrumRequest == nil,
+                "Song peek did not stop spectrum capture")
+        host.layoutSubtreeIfNeeded()
+        let peek = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: peek)
+        let peekRight = (host.bounds.width + IslandArtworkRenderProbe.surfaceSize.width) / 2
+        for x in Int((peekRight - 45) * scale)..<Int((peekRight - 8) * scale) {
+            for y in Int(4 * scale)..<Int((vm.effectiveClosedNotchHeight - 4) * scale) {
+                let c = peek.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                require(max(c.redComponent, c.greenComponent, c.blueComponent) < 0.05,
+                        "Song peek rendered spectrum pixels in the empty artist region")
+            }
+        }
+        MusicManager.shared.artistName = originalArtist
+        try? await Task.sleep(for: .seconds(0.1))
+        host.cacheDisplay(in: host.bounds, to: peek)
+        try! peek.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("spectrum-song-peek-without-bars.png"))
+        activities.end(.musicChange)
+        try? await Task.sleep(for: .seconds(0.6))
+        require(activities.current?.kind == .music && activities.spectrumRequest != nil,
+                "Regular music did not restore its spectrum after the peek")
+        let restoredLease = activities.spectrumRequest!
+
+        // A second display consumes the same lease; it never starts another source.
+        let vm2 = IslandViewModel(screenUUID: screen.displayUUID)
+        vm2.hideOnClosed = false
+        let host2 = NSHostingView(rootView: ContentView().environmentObject(vm2))
+        let window2 = NSWindow(contentRect: window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window2.isReleasedWhenClosed = false
+        window2.contentView = host2; window2.orderBack(nil)
+        defer { window2.orderOut(nil); window2.contentView = nil; vm2.destroy() }
+        try? await Task.sleep(for: .seconds(0.1))
+        let secondSelectPage = IslandArtworkRenderProbe.selectPage!
+        require(activities.spectrumRequest == restoredLease, "A second display restarted shared capture")
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest == restoredLease, "Opening one display stopped the other display's spectrum")
+        vm2.open()
+        try? await Task.sleep(for: .seconds(0.6))
+        require(activities.spectrumRequest == restoredLease,
+                "Expanded music restarted or stopped its shared spectrum")
+        activities.receiveSpectrum(Array(repeating: 1, count: 6), for: restoredLease)
+        try? await Task.sleep(for: .seconds(0.1))
+        host.layoutSubtreeIfNeeded()
+        let expanded = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: expanded)
+        try! expanded.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("spectrum-expanded-music.png"))
+        let contentRight = (host.bounds.width + vm.expandedNotchSize.width) / 2
+            - cornerRadiusInsets.opened.top - MusicPlayerImageSizes.panelPadding
+        let contentTop = max(24, vm.effectiveClosedNotchHeight) + MusicPlayerImageSizes.sectionSpacing
+        var expandedBands: [Int] = [], bandHeight = 0
+        for x in Int((contentRight - 20) * scale)..<Int(contentRight * scale) {
+            var height = 0
+            for y in Int((contentTop + 6) * scale)..<Int((contentTop + 36) * scale) {
+                let c = expanded.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                if min(c.redComponent, c.greenComponent, c.blueComponent) > 0.5 { height += 1 }
+            }
+            if height > 0 { bandHeight = max(bandHeight, height) }
+            else if bandHeight > 0 { expandedBands.append(bandHeight); bandHeight = 0 }
+        }
+        if bandHeight > 0 { expandedBands.append(bandHeight) }
+        require(expandedBands.count == 6 && expandedBands.min()! >= Int(16 * scale),
+                "Expanded music did not reserve a full six-bar spectrum at the information area's right edge: \(expandedBands)")
+        activities.post(.musicChange)
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest == restoredLease, "A song-change emphasis stopped the visible expanded spectrum")
+        activities.end(.musicChange)
+        Defaults[.musicLiveActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest == restoredLease, "Turning off compact music disabled explicitly visible expanded music")
+        Defaults[.musicLiveActivityEnabled] = true
+        try? await Task.sleep(for: .seconds(0.1))
+        firstSelectPage(.reminders)
+        secondSelectPage(.timer)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(activities.spectrumRequest == nil && activities.spectrumSnapshot == MusicSpectrumState.quiet,
+                "Browsing away from all music pages retained capture")
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest != nil && activities.spectrumRequest != lease, "Visible spectrum did not acquire a fresh lease")
+        activities.receiveSpectrum(Array(repeating: 1, count: 6), for: lease)
+        require(activities.spectrumSnapshot == MusicSpectrumState.quiet, "A queued frame revived after reopening")
+        timer.start(duration: 1500)
+        require(activities.current?.kind == .timer && activities.spectrumRequest == nil,
+                "Spectrum bypassed scheduled timer priority")
+        timer.cancel()
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest != nil, "Music spectrum did not recover after timer cancellation")
+        Defaults[.realTimeSpectrum] = false
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest == nil, "Disabling spectrum left capture active")
+        print("PASS: six frequency bands with cover-height ceiling, expanded top-right spectrum, shared compact/expanded lease, source enable policy, peek exclusion, hidden stop, stale-frame rejection and timer preemption/recovery; hardware capture is inert in this fixture")
     }
 
     @MainActor static func verifyMusicEntry(output: URL) async {

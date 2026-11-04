@@ -28,6 +28,7 @@ enum IslandPresentation: Equatable {
     }
 
     var showsMusicPeek: Bool { self == .music(peek: true) }
+    var showsMusicSpectrum: Bool { self == .music(peek: false) }
 
     /// Pending timer completion uses the existing full panel until acknowledged.
     var requiresExpandedTimer: Bool { self == .timer(finished: true) }

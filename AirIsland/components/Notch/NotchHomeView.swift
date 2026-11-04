@@ -13,6 +13,7 @@ import SwiftUI
 // MARK: - Music Player Components
 
 struct MusicPlayerView: View {
+    var active = true
     @EnvironmentObject private var vm: IslandViewModel
 
     var body: some View {
@@ -21,7 +22,7 @@ struct MusicPlayerView: View {
             Color.clear
                 .frame(width: side, height: side)
                 .padding(MusicPlayerImageSizes.padding)
-            MusicControlsView().drawingGroup().compositingGroup()
+            MusicControlsView(active: active).drawingGroup().compositingGroup()
         }
     }
 }
@@ -252,6 +253,7 @@ private struct AlbumArtworkFlipFace: AnimatableModifier {
 }
 
 struct MusicControlsView: View {
+    var active = true
     @ObservedObject var musicManager = MusicManager.shared
     @State private var sliderValue: Double = 0
     @State private var dragging: Bool = false
@@ -277,20 +279,24 @@ struct MusicControlsView: View {
     }
 
     private func songInfo(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            MarqueeText(
-                $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
-                frameWidth: width)
-            MarqueeText(
-                $musicManager.artistName,
-                font: .headline,
-                nsFont: .headline,
-                textColor: Color(nsColor: musicManager.avgColor)
-                    .ensureMinimumBrightness(factor: 0.6),
-                frameWidth: width
-            )
-            .fontWeight(.medium)
-
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
+                MarqueeText(
+                    $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
+                    frameWidth: max(0, width - 32))
+                MarqueeText(
+                    $musicManager.artistName,
+                    font: .headline,
+                    nsFont: .headline,
+                    textColor: Color(nsColor: musicManager.avgColor)
+                        .ensureMinimumBrightness(factor: 0.6),
+                    frameWidth: max(0, width - 32)
+                )
+                .fontWeight(.medium)
+            }
+            AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && active), maximumHeight: 20)
+                .foregroundStyle(Color(nsColor: musicManager.avgColor).ensureMinimumBrightness(factor: 0.6))
+                .padding(.top, 1)
         }
     }
 
@@ -337,6 +343,7 @@ struct MusicControlsView: View {
 // MARK: - Main View
 
 struct NotchHomeView: View {
+    var active = true
     @EnvironmentObject var vm: IslandViewModel
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
@@ -363,7 +370,7 @@ struct NotchHomeView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MusicPlayerView()
+                MusicPlayerView(active: active)
             }
         }
         .blur(radius: vm.notchState == .closed ? 30 : 0)

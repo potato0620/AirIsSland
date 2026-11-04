@@ -5,6 +5,7 @@
 ```sh
 bash Tests/run-activity-tests.sh
 bash Tests/run-media-playback-tests.sh
+bash Tests/run-music-spectrum-tests.sh
 python3 Tests/check-architecture.py
 bash Tests/run-island-transition-tests.sh
 bash Tests/run-island-artwork-tests.sh
@@ -67,3 +68,7 @@ Release 构建必须通过。影响界面的变更还需验证：
 `bash Tests/run-island-artwork-tests.sh --motion-only` 在隔离来源/偏好域中点击生产主按钮与完成动作：检查计时立即启动/暂停/继续/取消，主按钮单实例、位置中间帧与快速反向连续，以及减少动态效果；提醒事项用受控写入结果替代 EventKit，只将真实生产页面、协调器及成功/失败返回路径接入。检查成功、失败、重复点击和最后一项完成的实际勾选像素，以及其余行补位的逐帧位置。它不写入用户系统提醒事项，不能替代真实 EventKit 写入/撤回权限验收。
 
 `bash Tests/run-island-artwork-tests.sh --music-entry-only` 读取生产音乐封面的实际像素位置，检查从待办/计时页返回时封面追随原速翻页落位、手势提交与取消、快速反向、封面身份不重建及减少动态效果；另按“浏览其他页 → 收起恢复音乐 → 再展开”的路径逐帧对照封面像素与岛的统一几何进度，确认不重播横向追入。不启动真实播放器，不代替真实触控板验收。
+
+`bash Tests/run-music-spectrum-tests.sh` 编译生产频谱策略与 Accelerate 分析器，以 44.1/48 kHz 的六种正弦信号检查频段映射、静音回落、幅值有限且归一化、帧输出上限，以及启用/隐藏/暂停/未知来源、播放器/歌曲身份变化及过期帧拒绝，不访问系统音频。
+
+`bash Tests/run-island-artwork-tests.sh --spectrum-only` 在禁止硬件采集的副本中，读取真实六柱像素、与封面同高的幅值上限及展开音乐页右上角的六柱像素，并在切歌速览中用无歌手字形干扰的尾部区域像素确认频谱已移除、结束速览后恢复，验证需明确启用、多屏共用会话、展开音乐页保持同一采集代次、所有窗口切离音乐页后停止采集请求、重新收起拒绝旧帧、计时抢占/恢复及关闭。它不申请权限，不能代替当前播放器 Tap 的真实采样、输出设备切换和权限拒绝/撤回验收。真实采集须由用户先开启媒体设置中的实时音乐频谱并授权系统音频采集；不把静态波形或模拟帧写成已验证真实音乐。

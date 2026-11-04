@@ -72,6 +72,9 @@ s = s[:start] + '''    @discardableResult func complete(id: String) -> Bool {
     }
 ''' + s[end:]
 p.write_text(s)
+p = check / 'AirIsland/managers/MusicSpectrumSource.swift'
+s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func retry()', start)
+p.write_text(s[:start] + '    private init() {}\n' + s[end:])
 p = check / 'AirIsland/IslandWindowCoordinator.swift'
 s = p.read_text(); start = s.index('    private init() {')
 p.write_text(s[:start] + '    private init() {}\n}\n')

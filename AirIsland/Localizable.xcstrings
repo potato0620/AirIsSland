@@ -1,6 +1,91 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Real-time music spectrum" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Real-time music spectrum"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实时音乐频谱"
+          }
+        }
+      }
+    },
+    "Analyzes only the current player's audio. macOS asks for system audio recording access when the spectrum is visible. Audio is not saved or uploaded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Analyzes only the current player's audio. macOS asks for system audio recording access when the spectrum is visible. Audio is not saved or uploaded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅分析当前播放器的声音。频谱显示时，macOS 会请求系统音频采集权限。音频不会保存或上传。"
+          }
+        }
+      }
+    },
+    "Audio capture could not start. Allow AirIsland in System Settings > Privacy & Security > Screen & System Audio Recording." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio capture could not start. Allow AirIsland in System Settings > Privacy & Security > Screen & System Audio Recording."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音频采集未能启动。请在「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」中允许 AirIsland。"
+          }
+        }
+      }
+    },
+    "Retry audio capture" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry audio capture"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试音频采集"
+          }
+        }
+      }
+    },
+    "Real-time music spectrum requires macOS 14.2 or later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Real-time music spectrum requires macOS 14.2 or later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实时音乐频谱需要 macOS 14.2 或更新版本。"
+          }
+        }
+      }
+    },
     "" : {
       "localizations" : {
         "ar" : {
