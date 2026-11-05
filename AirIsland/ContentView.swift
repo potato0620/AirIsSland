@@ -36,6 +36,8 @@ struct ContentView: View {
     @State private var artworkPagingIsInteractive = false
     @State private var measuredCompactWidth: CGFloat = 0
     @State private var spectrumConsumer = UUID()
+    @State private var expandedPagesVisible = false
+    @State private var compactContentVisible = false
 
     @ObservedObject private var activities = ActivityCoordinator.shared
 
@@ -76,9 +78,13 @@ struct ContentView: View {
     private enum SpectrumDisplay { case hidden, compact, expanded }
     private var spectrumDisplay: SpectrumDisplay {
         guard !reduceMotion else { return .hidden }
-        if vm.notchState == .open {
-            return pager.selection == .music && !musicManager.songTitle.isEmpty ? .expanded : .hidden
+        // A closing page is still visible until the shared geometry reaches zero.
+        // Keep its capture demand alive through that same rendered interval.
+        if (vm.notchState == .open || expandedPagesVisible), pager.selection == .music,
+           !musicManager.songTitle.isEmpty {
+            return .expanded
         }
+        guard vm.notchState == .closed || compactContentVisible else { return .hidden }
         return !vm.hideOnClosed && vm.effectiveClosedNotchHeight > 12 && presentation.showsMusicSpectrum ? .compact : .hidden
     }
 
@@ -115,6 +121,7 @@ struct ContentView: View {
                         artworkReturningToMusic: pager.selection == .music,
                         artworkPagingIsInteractive: artworkPagingIsInteractive,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
+                        compactVisibilityChanged: { compactContentVisible = $0 },
                         scalesCorners: Defaults[.cornerRadiusScaling],
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork
                     ))
@@ -287,13 +294,17 @@ struct ContentView: View {
                     ForEach(enabledPages) { page in
                         expandedPage(page, width: width, expansion: expansion) {
                             switch page {
-                            case .music: NotchHomeView(active: vm.notchState == .open && pager.selection == .music)
+                            case .music: NotchHomeView(active: pager.selection == .music)
                             case .reminders: RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
                             case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer)
                             }
                         }
                     }
                 }
+                    // This tree stays mounted through the rendered closing
+                    // progress. Release demand only when it actually retires.
+                    .onAppear { expandedPagesVisible = true }
+                    .onDisappear { expandedPagesVisible = false }
                     .frame(width: width * CGFloat(enabledPages.count),
                            height: expandedPageHeight, alignment: .leading)
                     .offset(x: -pagePosition * width)
@@ -437,7 +448,7 @@ struct ContentView: View {
                     .fill(Color(nsColor: musicManager.avgColor).gradient)
                     .frame(width: 20, height: spectrumHeight)
                     .mask {
-                        AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying && vm.notchState == .closed),
+                        AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying),
                                           maximumHeight: spectrumHeight)
                             .frame(width: 20, height: spectrumHeight)
                     }
@@ -560,6 +571,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let artworkReturningToMusic: Bool
     let artworkPagingIsInteractive: Bool
     let keepsCompactVisible: Bool
+    let compactVisibilityChanged: (Bool) -> Void
     let scalesCorners: Bool
     let isArtworkPaused: Bool
     let showsArtwork: Bool
@@ -579,7 +591,10 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
         let closedHeight = vm.effectiveClosedNotchHeight
         let top = interpolate(cornerRadiusInsets.closed.top, scalesCorners ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top)
         let bottom = interpolate(cornerRadiusInsets.closed.bottom, scalesCorners ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom)
-        content.opacity(keepsCompactVisible ? 1 : 1 - expansion)
+        let compactVisible = keepsCompactVisible || expansion < 1
+        content.environment(\.musicSpectrumVisible, compactVisible)
+            .onChange(of: compactVisible, initial: true) { _, visible in compactVisibilityChanged(visible) }
+            .opacity(keepsCompactVisible ? 1 : 1 - expansion)
             .allowsHitTesting(vm.notchState == .closed)
             .accessibilityHidden(vm.notchState == .open)
             // The expansion already supplies each frame. Scope this to the

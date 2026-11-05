@@ -13,7 +13,7 @@ final class ActivityCoordinator: ObservableObject {
     @Published private(set) var spectrumRequest: MusicSpectrumRequest?
     // A separate payload publisher avoids reevaluating the whole island at audio cadence.
     private let spectrumValues = CurrentValueSubject<[Double], Never>(MusicSpectrumState.quiet)
-    var spectrumLevels: AnyPublisher<[Double], Never> { spectrumValues.eraseToAnyPublisher() }
+    let spectrumLevels: AnyPublisher<[Double], Never>
     var spectrumSnapshot: [Double] { spectrum.levels }
     private var spectrum = MusicSpectrumState()
     // The value distinguishes an explicitly visible music page from compact activity content.
@@ -27,6 +27,7 @@ final class ActivityCoordinator: ObservableObject {
     private var musicIsActive = false
 
     private init() {
+        spectrumLevels = spectrumValues.eraseToAnyPublisher()
         Defaults.publisher(.timerActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in if !Defaults[.timerActivityEnabled] { self?.setTimer(nil) } }
         }.store(in: &preferences)

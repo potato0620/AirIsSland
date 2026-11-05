@@ -2,12 +2,58 @@
 // Six real audio bands replace the former randomized playback animation.
 import SwiftUI
 
+private struct MusicSpectrumVisibilityKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var musicSpectrumVisible: Bool {
+        get { self[MusicSpectrumVisibilityKey.self] }
+        set { self[MusicSpectrumVisibilityKey.self] = newValue }
+    }
+}
+
 struct AudioSpectrumView: View {
     @Binding var isPlaying: Bool
     var maximumHeight: CGFloat = 12
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.musicSpectrumVisible) private var visible
     @State private var levels = MusicSpectrumState.quiet
+
+    private var followsAudio: Bool { isPlaying && visible && !reduceMotion }
+
+    var body: some View {
+        AudioSpectrumBars(levels: levels, maximumHeight: maximumHeight)
+            .onReceive(ActivityCoordinator.shared.spectrumLevels) { update(followsAudio ? $0 : MusicSpectrumState.quiet) }
+            .onChange(of: followsAudio, initial: true) { _, active in
+                update(active ? ActivityCoordinator.shared.spectrumSnapshot : MusicSpectrumState.quiet)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func update(_ next: [Double]) {
+        guard levels != next else { return }
+        // Only a reset/pause settles over time. Normal analyzer frames already
+        // have an envelope, so they retain the direct, inexpensive drawing path.
+        let settles = visible && !reduceMotion && next == MusicSpectrumState.quiet
+        withAnimation(settles ? .easeOut(duration: 0.18) : nil) { levels = next }
+    }
+}
+
+private struct AudioSpectrumBars: View, Animatable {
+    var levels: [Double]
+    let maximumHeight: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
+    typealias Pair = AnimatablePair<Double, Double>
+    var animatableData: AnimatablePair<Pair, AnimatablePair<Pair, Pair>> {
+        get { .init(.init(levels[0], levels[1]), .init(.init(levels[2], levels[3]), .init(levels[4], levels[5]))) }
+        set {
+            levels = [newValue.first.first, newValue.first.second,
+                      newValue.second.first.first, newValue.second.first.second,
+                      newValue.second.second.first, newValue.second.second.second]
+        }
+    }
 
     var body: some View {
         // Fractional physical-pixel gaps rasterize unevenly (1.6 pt is 3.2 px
@@ -17,19 +63,14 @@ struct AudioSpectrumView: View {
         let contentWidth = CGFloat(MusicSpectrumState.barCount) * 2
             + CGFloat(MusicSpectrumState.barCount - 1) * spacing
         let leadingInset = floor((20 - contentWidth) * scale / 2) / scale
-        HStack(spacing: spacing) {
-            ForEach(0..<MusicSpectrumState.barCount, id: \.self) { index in
-                Capsule()
-                    .frame(width: 2, height: maximumHeight * (isPlaying && !reduceMotion ? levels[index] : 0.12))
+        Canvas { context, size in
+            for index in 0..<MusicSpectrumState.barCount {
+                let height = maximumHeight * levels[index]
+                let rect = CGRect(x: leadingInset + CGFloat(index) * (2 + spacing),
+                                  y: (size.height - height) / 2, width: 2, height: height)
+                context.fill(Path(roundedRect: rect, cornerRadius: min(1, height / 2)), with: .foreground)
             }
         }
-        .padding(.leading, leadingInset)
-        .frame(width: 20, height: maximumHeight, alignment: .leading)
-        .animation(reduceMotion ? nil : .linear(duration: 1.0 / 30), value: levels)
-        .onReceive(ActivityCoordinator.shared.spectrumLevels) {
-            let next = isPlaying && !reduceMotion ? $0 : MusicSpectrumState.quiet
-            if levels != next { levels = next }
-        }
-        .accessibilityHidden(true)
+        .frame(width: 20, height: maximumHeight)
     }
 }

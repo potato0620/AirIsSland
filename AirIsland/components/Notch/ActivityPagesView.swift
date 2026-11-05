@@ -109,7 +109,7 @@ struct TimerActivityPage: View {
                     }
                 }
             } else {
-                TimelineView(.animation(minimumInterval: 1, paused: activities.timer?.phase != .running)) { context in
+                TimelineView(.animation(minimumInterval: 1, paused: !active || activities.timer?.phase != .running)) { context in
                     TimerInteractionSurface(progress: runProgress,
                         duration: $selectedDuration, pickerID: pickerID,
                         timer: activities.timer ?? lastTimer, date: context.date,

@@ -428,6 +428,7 @@ private struct ActionButtonSizes: PreferenceKey {
         for kind in IslandActivityKind.allCases where kind != .music { activities.end(kind) }
         activities.setMusicActive(true)
         activities.setMusicSpectrumSource(bundleIdentifier: "fixture.player", playing: true, trackIdentifier: UUID())
+        await verifySpectrumSettling(output: output)
         let screen = NSScreen.screens[0]
         let vm = IslandViewModel(screenUUID: screen.displayUUID)
         vm.hideOnClosed = false
@@ -507,7 +508,95 @@ private struct ActionButtonSizes: PreferenceKey {
         try? await Task.sleep(for: .seconds(0.6))
         require(activities.current?.kind == .music && activities.spectrumRequest != nil,
                 "Regular music did not restore its spectrum after the peek")
-        let restoredLease = activities.spectrumRequest!
+        var restoredLease = activities.spectrumRequest!
+
+        // Keep compact bars live while they fade away on opening, including
+        // browsing another card before expansion has finished.
+        let compactRight = (host.bounds.width + IslandArtworkRenderProbe.surfaceSize.width) / 2
+        IslandArtworkRenderProbe.expansionOverride = 0.2
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.3))
+        firstSelectPage(.reminders)
+        try? await Task.sleep(for: .seconds(0.15))
+        require(activities.spectrumRequest == restoredLease, "Opening withdrew still-visible compact capture")
+        func openingBandHeight(_ amplitude: Double, name: String) async -> Int {
+            activities.receiveSpectrum(Array(repeating: amplitude, count: 6), for: restoredLease)
+            try? await Task.sleep(for: .seconds(0.08))
+            host.layoutSubtreeIfNeeded()
+            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: image)
+            try! image.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            return (Int((compactRight - 48) * scale)..<Int((compactRight - 2) * scale)).map { x in
+                (0..<Int(vm.effectiveClosedNotchHeight * scale)).filter { y in
+                    let c = image.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return max(c.redComponent, c.greenComponent, c.blueComponent) > 0.1
+                }.count
+            }.max()!
+        }
+        let outgoingLoud = await openingBandHeight(1, name: "spectrum-opening-loud")
+        let outgoingSoft = await openingBandHeight(0.25, name: "spectrum-opening-soft")
+        require(outgoingLoud >= Int((vm.effectiveClosedNotchHeight - 14) * scale)
+                && outgoingSoft > 0 && Double(outgoingSoft) < Double(outgoingLoud) * 0.55,
+                "Opening flattened/froze outgoing compact bars: \(outgoingLoud), \(outgoingSoft)")
+        IslandArtworkRenderProbe.expansionOverride = 1
+        vm.objectWillChange.send()
+        try? await Task.sleep(for: .seconds(0.3))
+        require(activities.spectrumRequest == nil, "Hidden compact spectrum retained capture on another card")
+        firstSelectPage(.music)
+        try? await Task.sleep(for: .seconds(0.15))
+        require(activities.spectrumRequest != nil, "Expanded music failed to resume after opening")
+        restoredLease = activities.spectrumRequest!
+        IslandArtworkRenderProbe.expansionOverride = nil
+        vm.close()
+        try? await Task.sleep(for: .seconds(1.5))
+        print("PASS: outgoing compact bars consume live frames until expansion hides them, then release capture on other cards")
+
+        // Retiring music must keep both its drawing and its shared capture lease.
+        // Hide compact content so it cannot mask an early expanded-demand release.
+        vm.hideOnClosed = true
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.expansionOverride = 0.85
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.2))
+        require(activities.spectrumRequest == restoredLease,
+                "Closing withdrew capture before the expanded music was hidden")
+        func closingBandHeight(_ amplitude: Double, name: String) async -> Int {
+            activities.receiveSpectrum(Array(repeating: amplitude, count: 6), for: restoredLease)
+            try? await Task.sleep(for: .seconds(0.1))
+            host.layoutSubtreeIfNeeded()
+            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: image)
+            try! image.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            let right = (host.bounds.width + vm.expandedNotchSize.width) / 2
+                - cornerRadiusInsets.opened.top - MusicPlayerImageSizes.panelPadding
+            let top = max(24, vm.effectiveClosedNotchHeight) + MusicPlayerImageSizes.sectionSpacing
+            return (Int((right - 20) * scale)..<Int(right * scale)).map { x in
+                (Int((top + 6) * scale)..<Int((top + 36) * scale)).filter { y in
+                    let c = image.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return max(c.redComponent, c.greenComponent, c.blueComponent) > 0.1
+                }.count
+            }.max()!
+        }
+        let retiringLoud = await closingBandHeight(1, name: "spectrum-closing-loud")
+        let retiringSoft = await closingBandHeight(0.25, name: "spectrum-closing-soft")
+        require(retiringLoud >= Int(16 * scale) && retiringSoft > 0 && Double(retiringSoft) < Double(retiringLoud) * 0.55,
+                "Retiring spectrum flattened or stopped consuming live frames: \(retiringLoud), \(retiringSoft)")
+        IslandArtworkRenderProbe.expansionOverride = 1
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest == restoredLease, "Reversing a close restarted capture")
+        IslandArtworkRenderProbe.expansionOverride = 0
+        vm.close()
+        try? await Task.sleep(for: .seconds(1.5))
+        require(activities.spectrumRequest == nil, "Fully hidden music retained its capture demand (surface: \(IslandArtworkRenderProbe.surfaceSize), state: \(vm.notchState), hidden: \(vm.hideOnClosed))")
+        IslandArtworkRenderProbe.expansionOverride = nil
+        vm.hideOnClosed = false
+        vm.objectWillChange.send()
+        try? await Task.sleep(for: .seconds(0.15))
+        require(activities.spectrumRequest != nil, "Compact spectrum did not resume after the completed close")
+        restoredLease = activities.spectrumRequest!
+        print("PASS: closing music continues real spectrum frames until fully hidden; reversing preserves the lease")
 
         // A second display consumes the same lease; it never starts another source.
         let vm2 = IslandViewModel(screenUUID: screen.displayUUID)
@@ -588,6 +677,56 @@ private struct ActionButtonSizes: PreferenceKey {
         try? await Task.sleep(for: .seconds(0.1))
         require(activities.spectrumRequest == nil, "Losing the player source left capture active")
         print("PASS: automatically enabled six-band spectrum, obsolete off preference ignored, cover-height ceiling, shared compact/expanded lease, peek exclusion, hidden/source-loss stop, stale-frame rejection and timer preemption/recovery; hardware capture is inert in this fixture")
+    }
+
+    @MainActor static func verifySpectrumSettling(output: URL) async {
+        let activities = ActivityCoordinator.shared
+        let consumer = UUID()
+        activities.setSpectrumVisible(true, consumer: consumer, expanded: true)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 20, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: AudioSpectrumView(isPlaying: .constant(true), maximumHeight: 40)
+            .foregroundStyle(.white).background(.black))
+        window.contentView = host; window.orderBack(nil)
+        defer {
+            IslandArtworkRenderProbe.reduceMotion = false
+            window.orderOut(nil); window.contentView = nil
+            activities.setSpectrumVisible(false, consumer: consumer)
+        }
+        func height(_ name: String) -> Int {
+            host.layoutSubtreeIfNeeded()
+            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: image)
+            try! image.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            return (0..<image.pixelsWide).map { x in
+                (0..<image.pixelsHigh).filter { y in
+                    image.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!.redComponent > 0.25
+                }.count
+            }.max()!
+        }
+        try? await Task.sleep(for: .seconds(0.1))
+        activities.receiveSpectrum(Array(repeating: 1, count: 6), for: activities.spectrumRequest!)
+        try? await Task.sleep(for: .seconds(0.06))
+        let loud = height("spectrum-reset-before")
+        activities.setMusicSpectrumSource(bundleIdentifier: "fixture.player", playing: true, trackIdentifier: UUID())
+        try? await Task.sleep(for: .seconds(0.025))
+        let early = height("spectrum-reset-early")
+        try? await Task.sleep(for: .seconds(0.07))
+        let middle = height("spectrum-reset-middle")
+        try? await Task.sleep(for: .seconds(0.18))
+        let quiet = height("spectrum-reset-quiet")
+        require(early > middle && middle > quiet * 2 && quiet < loud / 5,
+                "Track reset did not visibly settle through intermediate heights: \(loud), \(early), \(middle), \(quiet)")
+        activities.receiveSpectrum(Array(repeating: 0.8, count: 6), for: activities.spectrumRequest!)
+        try? await Task.sleep(for: .seconds(0.04))
+        let resumed = height("spectrum-reset-resumed")
+        require(Double(resumed) > Double(loud) * 0.7, "Live frames acquired an unwanted extra interpolation")
+        IslandArtworkRenderProbe.reduceMotion = true
+        activities.receiveSpectrum(Array(repeating: 0.6, count: 6), for: activities.spectrumRequest!)
+        try? await Task.sleep(for: .seconds(0.025))
+        require(height("spectrum-reset-reduced-motion") <= quiet + 1, "Reduce Motion animated the spectrum reset")
+        print("PASS: source reset visibly settles, live frames stay direct, and Reduce Motion resets immediately (heights \(loud), \(early), \(middle), \(quiet))")
     }
 
     @MainActor static func verifySpectrumPixelSpacing(output: URL) {
