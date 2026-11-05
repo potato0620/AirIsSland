@@ -19,6 +19,7 @@ enum IslandArtworkRenderProbe {
     static var expansionOverride: CGFloat?
     static var selectPage: ((IslandPage) -> Void)?
     static var horizontalGesture: ((Double, Double, NSEvent.Phase) -> Void)?
+    static var hover: ((Bool) -> Void)?
     static var startTimer: ((TimeInterval) -> Void)?
     static var actionFrames: [String: CGRect] = [:]
     static var actionHandlers: [String: () -> Void] = [:]
@@ -33,6 +34,15 @@ private struct ActionButtonSizes: PreferenceKey {
     static let defaultValue: [String: CGSize] = [:]
     static func reduce(value: inout [String: CGSize], nextValue: () -> [String: CGSize]) {
         value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+// Record the actual AppKit boundary while retaining the production NSPanel behavior.
+final class ReminderFocusTestWindow: IslandWindow {
+    var onMakeKey: (() -> Void)?
+    override func makeKey() {
+        onMakeKey?()
+        super.makeKey()
     }
 }
 
@@ -112,6 +122,10 @@ private struct ActionButtonSizes: PreferenceKey {
                 await verifyAlarmMotion(output: output)
                 exit(0)
             }
+            if CommandLine.arguments.contains("--reminder-focus-only") {
+                await verifyReminderEditingFocus(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--reminders-only") {
                 await renderRemindersPage(output: output)
                 exit(0)
@@ -174,6 +188,103 @@ private struct ActionButtonSizes: PreferenceKey {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func verifyReminderEditingFocus(output: URL) async {
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+        let source = RemindersActivityManager.shared
+        let previousAuthorization = source.authorized
+        let previousEnabled = Defaults[.remindersActivityEnabled]
+        source.authorized = true
+        Defaults[.remindersActivityEnabled] = true
+        defer { source.authorized = previousAuthorization; Defaults[.remindersActivityEnabled] = previousEnabled }
+        for launch in 0..<3 {
+            let delegate = AppDelegate()
+            let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+            vm.hideOnClosed = false
+            let window = delegate.createIslandWindow(for: NSScreen.screens[0], with: vm) as! ReminderFocusTestWindow
+            window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+            defer {
+                window.onMakeKey = nil
+                window.orderOut(nil); window.contentView = nil; window.close()
+                vm.destroy(); delegate.vm.destroy()
+            }
+            vm.open()
+            try? await Task.sleep(for: .seconds(0.6))
+            IslandArtworkRenderProbe.selectPage?(.reminders)
+            try? await Task.sleep(for: .seconds(0.2))
+            var requests = 0
+            var uncommittedRequests = 0
+            var publishingEditing = false
+            window.onMakeKey = {
+                requests += 1
+                if publishingEditing || !vm.isEditingActivity { uncommittedRequests += 1 }
+            }
+            // @Published emits before assigning the property. AppKit must not be
+            // invoked on that synchronous stack, and cancelled work must stay cancelled.
+            for scenario in 0..<4 {
+                vm.isEditingActivity = false
+                window.resignKey()
+                try? await Task.sleep(for: .seconds(0.03))
+                let before = requests
+                publishingEditing = true
+                vm.isEditingActivity = true
+                require(requests == before, "Key focus reentered an uncommitted editing update")
+                switch scenario {
+                case 0: vm.isEditingActivity = false
+                case 1: vm.close()
+                case 2: window.orderOut(nil)
+                default: window.alphaValue = 0
+                }
+                publishingEditing = false
+                try? await Task.sleep(for: .seconds(0.1))
+                require(requests == before, "Cancelled/closed/hidden editor stole keyboard focus")
+                vm.isEditingActivity = false
+                window.alphaValue = 1
+                window.orderFrontRegardless()
+                vm.open()
+                try? await Task.sleep(for: .seconds(0.15))
+            }
+            IslandArtworkRenderProbe.selectPage?(.reminders)
+            try? await Task.sleep(for: .seconds(0.2))
+            for attempt in 0..<4 {
+                IslandArtworkRenderProbe.hover?(true)
+                // Offscreen fixtures have no hover. Cancelling legitimately
+                // closes the panel, so reopen as a user would for the next add.
+                vm.open()
+                try? await Task.sleep(for: .seconds(0.3))
+                IslandArtworkRenderProbe.selectPage?(.reminders)
+                try? await Task.sleep(for: .seconds(0.15))
+                IslandArtworkRenderProbe.hover?(true)
+                window.resignKey()
+                let before = requests
+                guard let begin = IslandArtworkRenderProbe.actionHandlers["plus"] else {
+                    require(false, "Missing actual reminder add action"); return
+                }
+                begin()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try? await Task.sleep(for: .seconds(0.18))
+                // Other applications may take key status while this async test
+                // yields. Check the committed request and actual field editor.
+                require(vm.isEditingActivity && requests > before,
+                        "Actual add action failed to request deferred keyboard focus (editing: \(vm.isEditingActivity), state: \(vm.notchState), visible: \(window.isVisible), key: \(window.isKeyWindow), requests: \(requests), before: \(before))")
+                require(window.firstResponder is NSTextView,
+                        "Reminder text field failed to install its native field editor")
+                if attempt == 0 {
+                    let host = window.contentView!
+                    let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                    host.cacheDisplay(in: host.bounds, to: image)
+                    try! image.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("reminder-editing-launch-\(launch).png"))
+                }
+                IslandArtworkRenderProbe.actionHandlers["xmark"]?()
+                try? await Task.sleep(for: .seconds(0.12))
+                require(!vm.isEditingActivity, "Cancelling add left editing enabled")
+            }
+            require(uncommittedRequests == 0, "Key-window callbacks ran during stale SwiftUI/Published state")
+        }
+        print("PASS: production nonactivating panels defer key focus beyond publishing, reject cancelled/closed/hidden requests, and open the native reminder editor across three cold windows and repeated add/cancel transitions; EventKit is inert")
     }
 
     @MainActor static func verifyCardExpansion(output: URL) async {

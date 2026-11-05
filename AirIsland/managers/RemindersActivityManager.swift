@@ -52,6 +52,14 @@ final class RemindersActivityManager: ObservableObject {
         }
     }
 
+    func openReminders() {
+        let workspace = NSWorkspace.shared
+        guard let url = workspace.urlForApplication(withBundleIdentifier: "com.apple.reminders") else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        workspace.openApplication(at: url, configuration: configuration, completionHandler: nil)
+    }
+
     func refresh() {
         let selection = currentSelection
         if selection != loadedSelection {

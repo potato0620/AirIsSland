@@ -12664,6 +12664,23 @@
         }
       }
     },
+    "Open Reminders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Reminders"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开提醒事项"
+          }
+        }
+      }
+    },
     "Open Reminder Settings" : {
       "localizations" : {
         "ar" : {

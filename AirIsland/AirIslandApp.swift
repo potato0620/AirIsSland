@@ -165,7 +165,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.$isEditingActivity
             .removeDuplicates()
             .filter { $0 }
-            .sink { [weak window] _ in window?.makeKey() }
+            // @Published sends during willSet, potentially inside a SwiftUI
+            // update. AppKit key-window notifications must not reenter that
+            // update while a retiring button's tooltip still reads its graph.
+            .receive(on: DispatchQueue.main)
+            .sink { [weak window, weak viewModel] _ in
+                guard let window, let viewModel,
+                      viewModel.isEditingActivity, viewModel.notchState == .open,
+                      window.isVisible, window.alphaValue > 0, !window.isKeyWindow else { return }
+                window.makeKey()
+            }
             .store(in: &viewModel.cancellables)
 
         window.orderFrontRegardless()

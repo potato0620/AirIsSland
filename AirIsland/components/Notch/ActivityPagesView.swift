@@ -430,12 +430,16 @@ struct RemindersActivityPage: View {
                         else { Text(source.lists.first(where: { $0.id == listIdentifier })?.title ?? String(localized: "Selected list unavailable")) }
                     }.foregroundStyle(.white.opacity(0.5))
                     Spacer(minLength: 8)
-                    Text("\(activities.reminders.count) tasks")
-                        .foregroundStyle(.blue)
-                        .monospacedDigit()
-                        .fixedSize()
-                        .contentTransition(.numericText(countsDown: true))
-                        .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.reminders.count)
+                    Button { source.openReminders() } label: {
+                        Text("\(activities.reminders.count) tasks")
+                            .foregroundStyle(.blue)
+                            .monospacedDigit()
+                            .fixedSize()
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.reminders.count)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(Text("Open Reminders"))
                 }.font(.subheadline).lineLimit(1)
                 VStack(alignment: .leading, spacing: 5) {
                     if let error = source.errorMessage {

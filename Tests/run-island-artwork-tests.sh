@@ -95,6 +95,7 @@ assert token in s
 s = s.replace(token, '''.onAppear {
                         IslandArtworkRenderProbe.selectPage = selectPage
                         IslandArtworkRenderProbe.horizontalGesture = handleHorizontalGesture
+                        IslandArtworkRenderProbe.hover = handleHover
                     }
                     .onChange(of: pager.selection, initial: true) { _, page in
                         IslandArtworkRenderProbe.selectedPage = page
@@ -136,6 +137,10 @@ s = p.read_text(); token = '.onAppear { reset() }'; assert token in s
 p.write_text(s.replace(token, '.onAppear { IslandArtworkRenderProbe.appearances += 1; reset() }'))
 p = check / 'AirIsland/AirIslandApp.swift'
 s = p.read_text().replace('@main\nstruct AirIslandApp', 'struct AirIslandApp', 1)
+# Exercise production window creation and focus subscription without private-space registration.
+s = s.replace('private func createIslandWindow(', 'func createIslandWindow(')
+s = s.replace('let window = IslandWindow(contentRect: rect,', 'let window = ReminderFocusTestWindow(contentRect: rect,')
+s = s.replace('NotchSpaceManager.shared.notchSpace.windows.insert(window)', '// No private-space registration in the fixture.')
 p.write_text(s + '\n' + (root / 'Tests/IslandArtworkRenderTests.swift').read_text())
 PY
 ARTWORK_BUILD_ARGS=(-project "$CHECK_PROJECT/AirIsland.xcodeproj" -scheme AirIsland
