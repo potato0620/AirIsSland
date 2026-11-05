@@ -1,9 +1,26 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>AirIsland Updates</title>
-        <link>https://github.com/potato0620/AirIsSland/releases</link>
-        <description>AirIsland stable releases</description>
-        <language>zh-CN</language>
+        <title>AirIsland</title>
+        <item>
+            <title>2.8.10</title>
+            <pubDate>Thu, 05 Nov 2026 11:41:27 +0800</pubDate>
+            <link>https://github.com/potato0620/AirIsSland/releases</link>
+            <sparkle:version>305</sparkle:version>
+            <sparkle:shortVersionString>2.8.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="plain-text"><![CDATA[- 新增应用内手动更新：通过关于页或菜单栏的“检查更新…”查看版本说明、下载，并确认安装重启。
+- 使用 AirIsland 独立的更新源与 Ed25519 更新包签名，修正更新检查引用上游 2.7.3 的问题；下载包在解压前校验签名。
+- 默认仅手动检查，不增加自动下载或后台更新设置；沿用原有应用标识、偏好和用户数据路径。
+
+首次升级说明：从公开发行的 2.8.9 或更早版本升级，需要手动下载安装本版。已经安装带更新器的本地版本，可以直接通过“检查更新…”升级。
+
+Apple Silicon（arm64），macOS 14 或更新版本。独立发行包使用本地签名，未经过 Apple 公证。
+
+本版完成相关模型与发布工具回归、更新策略与真实包签名/篡改检查、架构检查及完整 Release 构建。隔离应用已验证下载、安装、自动重启与测试偏好保留；不代表全部真实系统权限、安装路径、多屏及播放器边界已完成实机验收。
+]]></description>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.10/AirIsland-2.8.10-macOS-arm64.zip" length="7812316" type="application/octet-stream" sparkle:edSignature="lfpeviH6UxIc+9gBEtClniY0YKmjrEW1fE9nQyrmMRw3ivGoxXbtwuhZotxJcPTczSf3XZUMR6xC7BEJFhv4Aw=="/>
+        </item>
     </channel>
 </rss>
