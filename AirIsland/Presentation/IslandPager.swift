@@ -17,6 +17,7 @@ enum IslandPage: Int, CaseIterable, Identifiable {
 struct IslandPager {
     private(set) var pages: [IslandPage] = IslandPage.allCases
     private(set) var selection: IslandPage = .music
+    private(set) var lastBrowsedPage: IslandPage?
     private(set) var position: Double = 0
     private var origin: Double = 0
     private var anchor = 0
@@ -29,11 +30,13 @@ struct IslandPager {
         let next = available.isEmpty ? [.music] : available
         guard next != self.pages else { return }
         self.pages = next
+        if let lastBrowsedPage, !next.contains(lastBrowsedPage) { self.lastBrowsedPage = next[0] }
         select(next.contains(selection) ? selection : next[0])
     }
 
-    mutating func select(_ page: IslandPage) {
+    mutating func select(_ page: IslandPage, manually: Bool = false) {
         guard let index = pages.firstIndex(of: page) else { return }
+        if manually { lastBrowsedPage = page }
         selection = page
         position = Double(index)
         committed = true
@@ -67,6 +70,7 @@ struct IslandPager {
         guard abs(displacement) >= 0.16, pages.indices.contains(index) else { return nil }
         let page = pages[index]
         selection = page
+        lastBrowsedPage = page
         position = Double(index)
         committed = true
         return page

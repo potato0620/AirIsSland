@@ -173,7 +173,7 @@ struct ContentView: View {
                             switch activities.current?.kind {
                             case .timer, .timerFinished: page = .timer
                             case .reminders: page = .reminders
-                            case .none: page = activities.reminders.isEmpty ? .music : .reminders
+                            case .none: page = pager.lastBrowsedPage ?? (activities.reminders.isEmpty ? .music : .reminders)
                             case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power: page = .music
                             }
                             showOpeningPage(page)
@@ -353,11 +353,12 @@ struct ContentView: View {
     private func selectPage(_ page: IslandPage) {
         guard enabledPages.contains(page) else { return }
         activities.prefer(page.activityKind)
-        guard page != pager.selection else { return }
+        let changed = page != pager.selection
+        pager.select(page, manually: true)
+        guard changed else { return }
         vm.isEditingActivity = false
         artworkPagingIsInteractive = true
         if page == .music { musicPageHasEntered = true }
-        pager.select(page)
         withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
         IslandHaptics.alignment()
     }

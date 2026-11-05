@@ -195,7 +195,6 @@ struct SystemFeedbackSettings: View {
                     Defaults.Toggle("", key: .hudReplacement)
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .controlSize(.large)
                     .disabled(!accessibilityAuthorized)
                 }
 

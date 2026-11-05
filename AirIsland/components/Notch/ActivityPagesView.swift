@@ -448,7 +448,7 @@ struct RemindersActivityPage: View {
                     }
                         ScrollView(.vertical) {
                             // Eager layout keeps the last retiring row alive during its transition.
-                            VStack(alignment: .leading, spacing: 5) {
+                            VStack(alignment: .leading, spacing: 7) {
                                 ForEach(activities.reminders) { task in
                                     ReminderTaskRow(task: task) { source.complete(id: task.id) }
                                 }
@@ -458,6 +458,7 @@ struct RemindersActivityPage: View {
                             .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.reminders.map(\.id))
                             // Keep rows reachable beside the floating add button, including the last row.
                             .padding(.trailing, adding ? 0 : 56)
+                            .padding(.vertical, 2)
                         }.scrollIndicators(.hidden)
                         .overlay {
                             if activities.reminders.isEmpty {

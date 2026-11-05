@@ -9,6 +9,7 @@ import AppKit
 import ApplicationServices
 import Defaults
 import AVFoundation
+import Carbon
 
 private let kSystemDefinedEventType = CGEventType(rawValue: 14)!
 
@@ -29,6 +30,7 @@ final class MediaKeyInterceptor {
     private var runLoopSource: CFRunLoopSource?
     private let step: Float = 1.0 / 16.0
     private var audioPlayer: AVAudioPlayer?
+    private var consumedBrightnessKeys = Set<CGKeyCode>()
     
     private init() {}
     
@@ -65,6 +67,8 @@ final class MediaKeyInterceptor {
         }
         
         let mask = CGEventMask(1 << kSystemDefinedEventType.rawValue)
+            | CGEventMask(1 << CGEventType.keyDown.rawValue)
+            | CGEventMask(1 << CGEventType.keyUp.rawValue)
         eventTap = CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
@@ -96,11 +100,38 @@ final class MediaKeyInterceptor {
         }
         runLoopSource = nil
         eventTap = nil
+        consumedBrightnessKeys.removeAll()
     }
     
     // MARK: - Event Handling
     
     private func handleEvent(_ cgEvent: CGEvent) -> Unmanaged<CGEvent>? {
+        if cgEvent.type == .tapDisabledByTimeout {
+            consumedBrightnessKeys.removeAll()
+            if Defaults[.hudReplacement], let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return Unmanaged.passRetained(cgEvent)
+        }
+        // HHKB Fn+O/P and legacy Mac brightness keys arrive as F14/F15,
+        // not as NX system-defined media events. Pair only consumed key-ups.
+        if cgEvent.type == .keyDown || cgEvent.type == .keyUp {
+            let code = CGKeyCode(cgEvent.getIntegerValueField(.keyboardEventKeycode))
+            guard code == CGKeyCode(kVK_F14) || code == CGKeyCode(kVK_F15) else {
+                return Unmanaged.passRetained(cgEvent)
+            }
+            if cgEvent.type == .keyUp {
+                return consumedBrightnessKeys.remove(code) != nil ? nil : Unmanaged.passRetained(cgEvent)
+            }
+            let flags = cgEvent.flags
+            let option = flags.contains(.maskAlternate)
+            let shift = flags.contains(.maskShift)
+            guard !flags.contains(.maskCommand), !flags.contains(.maskControl), !(option && !shift) else {
+                return Unmanaged.passRetained(cgEvent)
+            }
+            consumedBrightnessKeys.insert(code)
+            handleKeyPress(keyType: code == CGKeyCode(kVK_F14) ? .brightnessDown : .brightnessUp,
+                           option: option, shift: shift, command: false)
+            return nil
+        }
         // Ensure the CGEvent has a valid type before converting to NSEvent
         guard cgEvent.type != .null else {
             return Unmanaged.passRetained(cgEvent)

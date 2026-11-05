@@ -17,7 +17,7 @@ class SettingsWindowController: NSWindowController {
     private init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 650),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -37,7 +37,7 @@ class SettingsWindowController: NSWindowController {
         
         window.minSize = NSSize(width: 760, height: 600)
         window.title = String(localized: "AirIsland Settings")
-        window.titlebarAppearsTransparent = true
+        window.titlebarAppearsTransparent = false
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         // Navigation is a native titlebar accessory aligned with the detail column.

@@ -22,6 +22,17 @@ for field in ['albumArtTrackIdentifier', 'albumArtFlipDirection', 'isChangingTra
     s = s.replace('@Published private(set) var ' + field, '@Published var ' + field)
 s = s.replace('private func updateFromPlaybackState(', 'func updateFromPlaybackState(')
 p.write_text(s)
+p = check / 'AirIsland/components/Live activities/DraggableProgressBar.swift'
+s = p.read_text()
+token = '.frame(height: isDragging ? 8 : 5)'
+assert token in s
+p.write_text(s.replace(token, token + '''.background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                        IslandArtworkRenderProbe.hudProgressFrame = frame
+                    }
+                }
+            }'''))
 p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
 s = p.read_text()
 token = 'TimerDurationForm(duration: $duration)'
@@ -75,6 +86,15 @@ p.write_text(s)
 p = check / 'AirIsland/managers/MusicSpectrumSource.swift'
 s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func retry()', start)
 p.write_text(s[:start] + '    private init() {}\n' + s[end:])
+# Run real input decoding with inert device actions; never install a global tap.
+p = check / 'AirIsland/observers/MediaKeyInterceptor.swift'
+s = p.read_text().replace('private func handleEvent(', 'func handleEvent(')
+a = s.index('        let stepDivisor:', s.index('private func handleKeyPress'))
+b = s.index('\n    private func adjustBrightness', a)
+s = s[:a] + '''        IslandArtworkRenderProbe.mediaKeys.append("\(keyType.rawValue):\(option && shift ? 4 : 1)")
+    }
+''' + s[b:]
+p.write_text(s)
 p = check / 'AirIsland/IslandWindowCoordinator.swift'
 s = p.read_text(); start = s.index('    private init() {')
 p.write_text(s[:start] + '    private init() {}\n}\n')

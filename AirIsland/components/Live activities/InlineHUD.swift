@@ -90,23 +90,27 @@ struct InlineHUD: View {
                                 KeyboardBacklightManager.shared.setAbsolute(value: Float32(v))
                             }
                         })
-                        if (type == .volume && value.isZero) {
-                            Text("muted")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.gray)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .multilineTextAlignment(.trailing)
-                        } else {
-                            Text("\(Int(value * 100))%")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.gray)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .multilineTextAlignment(.trailing)
+                        ZStack(alignment: .trailing) {
+                            // Reserve the maximum label width before laying out
+                            // the bar, so 9 → 99 → 100 never changes its track.
+                            Text(verbatim: "100%").hidden().accessibilityHidden(true)
+                            if type == .volume {
+                                Text("muted").hidden().accessibilityHidden(true)
+                            }
+                            if type == .volume && value.isZero {
+                                Text("muted")
+                            } else {
+                                Text("\(Int(value * 100))%")
+                            }
                         }
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .monospacedDigit()
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                        .allowsTightening(true)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }

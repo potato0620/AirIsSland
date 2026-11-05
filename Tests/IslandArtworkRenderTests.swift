@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Defaults
+import Carbon
 import SwiftUI
 
 // The runner adds an appearance counter to the production artwork in its isolated copy.
@@ -11,6 +12,8 @@ func require(_ condition: Bool, _ message: @autoclosure () -> String) {
 enum IslandArtworkRenderProbe {
     static var appearances = 0
     static var reduceMotion = false
+    static var mediaKeys: [String] = []
+    static var hudProgressFrame = CGRect.zero
     static var surfaceSize = CGSize.zero
     static var musicBackgroundFrame = CGRect.zero
     static var availablePages: [IslandPage] = []
@@ -87,6 +90,14 @@ final class ReminderFocusTestWindow: IslandWindow {
             ActivityCoordinator.shared.setMusicActive(true)
             if CommandLine.arguments.contains("--card-expansion-only") {
                 await verifyCardExpansion(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--media-keys-only") {
+                verifyMediaKeys()
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--hud-width-only") {
+                await verifyHUDProgressWidth(output: output)
                 exit(0)
             }
             if CommandLine.arguments.contains("--settings-only") {
@@ -206,6 +217,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             vm.hideOnClosed = false
             let window = delegate.createIslandWindow(for: NSScreen.screens[0], with: vm) as! ReminderFocusTestWindow
             window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+            NSApp.activate(ignoringOtherApps: true)
             defer {
                 window.onMakeKey = nil
                 window.orderOut(nil); window.contentView = nil; window.close()
@@ -258,6 +270,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 IslandArtworkRenderProbe.selectPage?(.reminders)
                 try? await Task.sleep(for: .seconds(0.15))
                 IslandArtworkRenderProbe.hover?(true)
+                NSApp.activate(ignoringOtherApps: true)
                 window.resignKey()
                 let before = requests
                 guard let begin = IslandArtworkRenderProbe.actionHandlers["plus"] else {
@@ -268,7 +281,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 try? await Task.sleep(for: .seconds(0.18))
                 // Other applications may take key status while this async test
                 // yields. Check the committed request and actual field editor.
-                require(vm.isEditingActivity && requests > before,
+                require(vm.isEditingActivity && (requests > before || window.firstResponder is NSTextView),
                         "Actual add action failed to request deferred keyboard focus (editing: \(vm.isEditingActivity), state: \(vm.notchState), visible: \(window.isVisible), key: \(window.isKeyWindow), requests: \(requests), before: \(before))")
                 require(window.firstResponder is NSTextView,
                         "Reminder text field failed to install its native field editor")
@@ -285,6 +298,77 @@ final class ReminderFocusTestWindow: IslandWindow {
             require(uncommittedRequests == 0, "Key-window callbacks ran during stale SwiftUI/Published state")
         }
         print("PASS: production nonactivating panels defer key focus beyond publishing, reject cancelled/closed/hidden requests, and open the native reminder editor across three cold windows and repeated add/cancel transitions; EventKit is inert")
+    }
+
+    @MainActor static func verifyMediaKeys() {
+        let interceptor = MediaKeyInterceptor.shared
+        func send(_ code: Int, down: Bool, flags: CGEventFlags = []) -> Bool {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)!
+            event.flags = flags
+            if let returned = interceptor.handleEvent(event) { _ = returned.takeRetainedValue(); return false }
+            return true
+        }
+        IslandArtworkRenderProbe.mediaKeys = []
+        require(!send(kVK_ANSI_A, down: true) && !send(kVK_F13, down: true), "Ordinary typing/function keys were consumed")
+        require(send(kVK_F14, down: true) && send(kVK_F14, down: false), "F14 brightness down was not paired")
+        require(send(kVK_F15, down: true, flags: .maskSecondaryFn) && send(kVK_F15, down: false), "Fn F15 brightness up was not paired")
+        require(IslandArtworkRenderProbe.mediaKeys == ["3:1", "2:1"], "Legacy brightness decoded into the wrong actions")
+        for flags: CGEventFlags in [.maskCommand, .maskControl, .maskAlternate] {
+            require(!send(kVK_F14, down: true, flags: flags) && !send(kVK_F14, down: false), "Reserved modifier shortcut was swallowed")
+        }
+        let fine: CGEventFlags = [.maskAlternate, .maskShift]
+        require(send(kVK_F15, down: true, flags: fine) && send(kVK_F15, down: true, flags: fine), "Fine adjustment or repeat was lost")
+        require(send(kVK_F15, down: false, flags: .maskCommand), "Consumed release was lost when modifiers changed")
+        require(Array(IslandArtworkRenderProbe.mediaKeys.suffix(2)) == ["2:4", "2:4"], "Fine adjustment divisor changed")
+        require(!send(kVK_F15, down: false), "An unrelated key-up was swallowed")
+        require(send(kVK_F14, down: true), "Cleanup fixture failed to consume key")
+        interceptor.stop()
+        require(!send(kVK_F14, down: false), "Stopping input retained stale pressed keys")
+        func media(_ code: Int, state: Int, flags: NSEvent.ModifierFlags = []) -> Bool {
+            let event = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: flags,
+                timestamp: 0, windowNumber: 0, context: nil, subtype: 8, data1: (code << 16) | (state << 8), data2: 0)!.cgEvent!
+            if let returned = interceptor.handleEvent(event) { _ = returned.takeRetainedValue(); return false }
+            return true
+        }
+        require(media(0, state: 0xA) && media(1, state: 0xA) && media(7, state: 0xA), "Existing volume/mute path regressed")
+        require(Array(IslandArtworkRenderProbe.mediaKeys.suffix(3)) == ["0:1", "1:1", "7:1"], "Volume actions were remapped")
+        require(!media(0, state: 0xB) && !media(0, state: 0xA, flags: .option), "Native media shortcuts were swallowed")
+        print("PASS: real F14/F15 and NX media decoding, paired releases, repeat/fine adjustment, reserved modifiers, ordinary key passthrough and stale key cleanup; no tap installed and no device values changed")
+    }
+
+    @MainActor static func verifyHUDProgressWidth(output: URL) async {
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 600, height: 60),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil; vm.destroy() }
+        for locale in ["en", "zh-Hans"] {
+            for hovering in [false, true] {
+                for type in [IslandActivityKind.volume, .brightness, .backlight] {
+                    var first: CGRect?
+                    for value in [0.0, 0.09, 0.99, 1.0, 0.99] {
+                        IslandArtworkRenderProbe.hudProgressFrame = .zero
+                        let host = NSHostingView(rootView: InlineHUD(type: type, value: .constant(value), icon: "", hoverAnimation: .constant(hovering))
+                            .environmentObject(vm).environment(\.locale, Locale(identifier: locale)).background(.black))
+                        window.contentView = host; window.orderBack(nil)
+                        try? await Task.sleep(for: .seconds(0.05))
+                        host.layoutSubtreeIfNeeded()
+                        let frame = IslandArtworkRenderProbe.hudProgressFrame
+                        require(frame.width > 10 && frame.height > 0, "HUD progress track was not measured")
+                        if let first {
+                            require(abs(frame.width - first.width) < 0.01 && abs(frame.minX - first.minX) < 0.01,
+                                    "HUD track moved/resized at \(value): \(first) → \(frame), \(locale), \(type), hover \(hovering)")
+                        } else { first = frame }
+                        if value == 0.99 || value == 1 {
+                            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                            host.cacheDisplay(in: host.bounds, to: image)
+                            try! image.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("hud-\(locale)-\(type)-hover-\(hovering)-\(Int(value * 100)).png"))
+                        }
+                    }
+                }
+            }
+        }
+        print("PASS: actual HUD track width and position stay fixed for 0/9/99/100/99 across volume, brightness, backlight, hover and English/Chinese; no device values changed")
     }
 
     @MainActor static func verifyCardExpansion(output: URL) async {
@@ -498,7 +582,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 window.orderBack(nil)
                 try? await Task.sleep(for: .seconds(0.2))
                 for (page, activity) in [("general", nil), ("activities", ActivitySettingsPage.music),
-                                         ("activities", nil), ("about", nil)] {
+                                         ("activities", nil), ("presentation", nil), ("about", nil)] {
                     controller.navigation.selectedPage = SettingsPage(rawValue: page)
                     try? await Task.sleep(for: .seconds(0.05))
                     controller.navigation.activityPage = activity
@@ -514,6 +598,21 @@ final class ReminderFocusTestWindow: IslandWindow {
                             "Settings title disappeared or crossed into the sidebar: \(titleInWindow)")
                     require(!header.isHiddenOrHasHiddenAncestor && titleInWindow.minY >= window.contentLayoutRect.maxY,
                             "Settings title is outside native titlebar layout: title=\(titleInWindow), content=\(window.contentLayoutRect)")
+                    func scrollViews(_ view: NSView) -> [NSScrollView] {
+                        (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+                    }
+                    for scroll in scrollViews(host) {
+                        let viewport = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
+                        guard viewport.minX > SettingsView.sidebarWidth else { continue }
+                        require(viewport.maxY <= window.contentLayoutRect.maxY + 0.5 && viewport.maxY <= titleInWindow.minY,
+                                "Detail scrolling viewport overlaps the navigation title: \(viewport), \(titleInWindow)")
+                        if let document = scroll.documentView, document.bounds.height > scroll.contentView.bounds.height {
+                            scroll.contentView.scroll(to: NSPoint(x: 0, y: 30))
+                            scroll.reflectScrolledClipView(scroll.contentView)
+                            let scrolled = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
+                            require(scrolled.maxY <= titleInWindow.minY, "Scrolling entered the titlebar")
+                        }
+                    }
                     let frameView = host.superview!
                     let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds)!
                     frameView.cacheDisplay(in: frameView.bounds, to: rep)
@@ -1843,11 +1942,31 @@ final class ReminderFocusTestWindow: IslandWindow {
             try? await Task.sleep(for: .seconds(0.016))
             centers.append(button("play.fill").midY)
         }
-        let reversing = centers.last!
+        // The icon-keyed geometry probe can still contain the previous pause
+        // icon's position during a reversal. Measure the actual orange control
+        // pixels on both sides of the interruption instead of that stale entry.
+        func renderedPrimaryY() -> CGFloat {
+            timerHost.layoutSubtreeIfNeeded()
+            let image = timerHost.bitmapImageRepForCachingDisplay(in: timerHost.bounds)!
+            timerHost.cacheDisplay(in: timerHost.bounds, to: image)
+            let scale = CGFloat(image.pixelsWide) / timerHost.bounds.width
+            let x = Int((timerHost.bounds.width - 28) * scale)
+            let rows = (0..<image.pixelsHigh).filter { y in
+                let c = image.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                return c.redComponent > 0.08 && c.redComponent > c.greenComponent * 1.4 && c.blueComponent < 0.08
+            }
+            require(!rows.isEmpty, "Could not locate the real persistent timer control")
+            return CGFloat(rows.first! + rows.last!) / (2 * scale)
+        }
+        let reversing = renderedPrimaryY()
         IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
         try? await Task.sleep(for: .seconds(0.016))
-        require(activities.timer?.phase == .running && abs(button("pause.fill").midY - reversing) < 15,
-                "Rapid restart jumped to an endpoint")
+        let reversed = renderedPrimaryY()
+        // Capturing a native frame can exceed one 16 ms display interval.
+        // Require a real intermediate reversal, not a wall-time assumption.
+        require(activities.timer?.phase == .running && reversed > running.midY + 1
+                    && reversed < reversing && reversed < idle.midY - 1,
+                "Rapid restart jumped to an endpoint: \(reversing) → \(reversed), phase \(String(describing: activities.timer?.phase))")
         timer.cancel()
         try? await Task.sleep(for: .seconds(0.7))
         require(abs(button("play.fill").midY - idle.midY) < 1
@@ -2281,6 +2400,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 "Reminders remained resident after music and timer ended")
         activities.prefer(.reminders)
         require(activities.current == nil, "Browsing reminders created a resident activity")
+        IslandArtworkRenderProbe.selectPage?(.reminders)
         vm.close()
         try? await Task.sleep(for: .seconds(0.7))
         require(IslandPresentation(activity: activities.current) == .idle,
@@ -2294,6 +2414,36 @@ final class ReminderFocusTestWindow: IslandWindow {
         require(IslandArtworkRenderProbe.selectedPage == .reminders && activities.current == nil,
                 "Opening the reminders panel created a resident activity")
         snapshot("panel-only-reminders-expanded")
+        for page in [IslandPage.music, .timer, .reminders] {
+            IslandArtworkRenderProbe.selectPage?(page)
+            vm.close()
+            try? await Task.sleep(for: .seconds(0.6))
+            vm.open()
+            try? await Task.sleep(for: .seconds(0.6))
+            require(IslandArtworkRenderProbe.selectedPage == page && activities.current == nil && activities.timer == nil,
+                    "Idle reopening lost the manually browsed page or fabricated an activity: \(page)")
+        }
+        IslandArtworkRenderProbe.selectPage?(.music)
+        for page in [IslandPage.reminders, .timer] {
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .began)
+            IslandArtworkRenderProbe.horizontalGesture?(vm.expandedNotchSize.width / 2, 0.02, .changed)
+            IslandArtworkRenderProbe.horizontalGesture?(0, 0.02, .ended)
+            vm.close()
+            try? await Task.sleep(for: .seconds(0.6))
+            vm.open()
+            try? await Task.sleep(for: .seconds(0.6))
+            require(IslandArtworkRenderProbe.selectedPage == page && activities.current == nil,
+                    "Idle swipe selection did not survive reopening: \(page)")
+        }
+        Defaults[.timerActivityEnabled] = false
+        try? await Task.sleep(for: .seconds(0.15))
+        vm.close()
+        try? await Task.sleep(for: .seconds(0.6))
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.6))
+        require(IslandArtworkRenderProbe.selectedPage == .music && activities.current == nil,
+                "Disabling the remembered page did not fall back to music")
+        Defaults[.timerActivityEnabled] = true
         reminderSource.authorized = previousAuthorization
         print("PASS: production swipe/dot resident selection, empty-page browsing, song peek expiry, source disable, alarm override and restoration (isolated offscreen runtime)")
     }
