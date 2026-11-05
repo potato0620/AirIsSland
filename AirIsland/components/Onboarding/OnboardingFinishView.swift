@@ -27,13 +27,19 @@ struct OnboardingFinishView: View {
             Spacer(minLength: 12)
 
             CardSwitchingDemo()
-                .frame(height: 240)
+                .frame(height: 220)
 
             Text("You can also click the dots in the top-left corner.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 12)
+
+            Text("Open Settings from the island's right-click menu or the menu bar icon.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 8)
 
             Spacer(minLength: 12)
 

@@ -23,7 +23,6 @@ struct AirIslandApp: App {
                     SettingsWindowController.shared.showWindow()
                 }
             }
-            .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             CheckForUpdatesView()
             Divider()
             Button("Restart AirIsland") {

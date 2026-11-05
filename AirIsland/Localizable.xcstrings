@@ -1,6 +1,40 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Show page indicators" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show page indicators"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示分页指示器"
+          }
+        }
+      }
+    },
+    "Open Settings from the island's right-click menu or the menu bar icon." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings from the island's right-click menu or the menu bar icon."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右键点击灵动岛或点击菜单栏图标，可打开设置。"
+          }
+        }
+      }
+    },
     "Welcome to AirIsland" : {
       "extractionState" : "manual",
       "localizations" : {

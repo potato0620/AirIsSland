@@ -177,6 +177,9 @@ struct DisplayInteractionSections: View {
             Defaults.Toggle(key: .enableHaptics) {
                     Text("Enable haptic feedback")
             }
+            Defaults.Toggle(key: .showPageIndicators) {
+                Text("Show page indicators")
+            }
             if openNotchOnHover {
                 Slider(value: $minimumHoverDuration, in: 0...1, step: 0.1) {
                     HStack {

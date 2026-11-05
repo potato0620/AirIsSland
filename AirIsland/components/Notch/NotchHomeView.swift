@@ -344,7 +344,6 @@ struct MusicControlsView: View {
 
 struct NotchHomeView: View {
     var active = true
-    @EnvironmentObject var vm: IslandViewModel
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
 
@@ -373,7 +372,6 @@ struct NotchHomeView: View {
                 MusicPlayerView(active: active)
             }
         }
-        .blur(radius: vm.notchState == .closed ? 30 : 0)
     }
 
 }

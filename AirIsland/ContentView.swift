@@ -20,6 +20,7 @@ struct ContentView: View {
     @Default(.lightingEffect) private var musicBackgroundEnabled
     @Default(.remindersActivityEnabled) private var remindersEnabled
     @Default(.timerActivityEnabled) private var timerEnabled
+    @Default(.showPageIndicators) private var showPageIndicators
 
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -108,7 +109,7 @@ struct ContentView: View {
                         compactWidth: measuredCompactWidth,
                         expandedSize: vm.expandedNotchSize,
                         expandedLeadingInset: expandedArtworkLeadingInset,
-                        expandedContent: { width in ExpandedNotchLayout(width: width) },
+                        expandedContent: { width, progress in ExpandedNotchLayout(width: width, expansion: progress) },
                         pagePosition: pagePosition,
                         artworkPageTarget: pagePosition,
                         artworkReturningToMusic: pager.selection == .music,
@@ -188,7 +189,6 @@ struct ContentView: View {
                                 SettingsWindowController.shared.showWindow()
                             }
                         }
-                        .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
                     }
             }
         }
@@ -262,12 +262,12 @@ struct ContentView: View {
         expandedHorizontalInset + MusicPlayerImageSizes.panelPadding + MusicPlayerImageSizes.padding
     }
 
-    private func ExpandedNotchLayout(width: CGFloat) -> some View {
+    private func ExpandedNotchLayout(width: CGFloat, expansion: CGFloat) -> some View {
         let dotSide: CGFloat = 5
         let dotTargetWidth: CGFloat = 18
         return VStack(alignment: .leading, spacing: MusicPlayerImageSizes.sectionSpacing) {
             HStack(spacing: 0) {
-                if enabledPages.count > 1 {
+                if enabledPages.count > 1 && showPageIndicators {
                     ForEach(enabledPages) { page in
                         Button { selectPage(page) } label: {
                             Circle()
@@ -282,14 +282,14 @@ struct ContentView: View {
             }
             .padding(.leading, expandedArtworkLeadingInset - (dotTargetWidth - dotSide) / 2)
             .frame(height: max(24, vm.effectiveClosedNotchHeight))
-            if vm.notchState == .open {
+            if vm.notchState == .open || expansion > 0 {
                 HStack(spacing: 0) {
                     ForEach(enabledPages) { page in
-                        expandedPage(page, width: width) {
+                        expandedPage(page, width: width, expansion: expansion) {
                             switch page {
-                            case .music: NotchHomeView(active: pager.selection == .music)
-                            case .reminders: RemindersActivityPage(active: pager.selection == .reminders)
-                            case .timer: TimerActivityPage(active: pager.selection == .timer)
+                            case .music: NotchHomeView(active: vm.notchState == .open && pager.selection == .music)
+                            case .reminders: RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
+                            case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer)
                             }
                         }
                     }
@@ -312,8 +312,10 @@ struct ContentView: View {
         max(0, expandedNotchHeight - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
     }
 
-    private func expandedPage<Content: View>(_ page: IslandPage, width: CGFloat, @ViewBuilder content: () -> Content) -> some View {
-        content().padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
+    private func expandedPage<Content: View>(_ page: IslandPage, width: CGFloat, expansion: CGFloat, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .modifier(IslandCardContentTransition(expansion: expansion))
+            .padding(.horizontal, expandedHorizontalInset + MusicPlayerImageSizes.panelPadding)
             .padding(.bottom, MusicPlayerImageSizes.panelPadding)
             .frame(width: width, height: expandedPageHeight)
             .background {
@@ -530,6 +532,18 @@ private struct CompactActivityLayout: Layout {
     }
 }
 
+/// Content follows the surface's rendered progress; page controls keep their own animations.
+struct IslandCardContentTransition: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let expansion: CGFloat
+
+    func body(content: Content) -> some View {
+        content.animation(nil) { page in
+            page.blur(radius: reduceMotion ? 0 : 30 * (1 - min(1, max(0, expansion))))
+        }
+    }
+}
+
 /// Width, height, outline and cover use the same rendered expansion. A compact
 /// content change is interpolated here too, never by a second outer frame.
 private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier {
@@ -540,7 +554,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     var compactWidth: CGFloat
     var expandedSize: CGSize
     let expandedLeadingInset: CGFloat
-    let expandedContent: (CGFloat) -> ExpandedContent
+    let expandedContent: (CGFloat, CGFloat) -> ExpandedContent
     var pagePosition: CGFloat
     let artworkPageTarget: CGFloat
     let artworkReturningToMusic: Bool
@@ -576,7 +590,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
                 }
             }
             .overlay(alignment: .top) {
-                expandedContent(expandedSize.width)
+                expandedContent(expandedSize.width, expansion)
                     .frame(width: expandedSize.width, height: expandedSize.height, alignment: .top)
                     .opacity(expansion)
                     .allowsHitTesting(vm.notchState == .open)

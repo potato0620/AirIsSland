@@ -24,6 +24,7 @@ extension Defaults.Keys {
     static let minimumHoverDuration = Key<TimeInterval>("minimumHoverDuration", default: 0.3)
     static let enableHaptics = Key<Bool>("enableHaptics", default: true)
     static let openNotchOnHover = Key<Bool>("openNotchOnHover", default: true)
+    static let showPageIndicators = Key<Bool>("showPageIndicators", default: true)
     static let notchHeightMode = Key<WindowHeightMode>(
         "notchHeightMode",
         default: WindowHeightMode.matchRealNotchSize
@@ -50,7 +51,7 @@ extension Defaults.Keys {
     
     // MARK: Media playback
     static let musicLiveActivityEnabled = Key<Bool>("musicLiveActivityEnabled", default: true)
-    static let enableSneakPeek = Key<Bool>("enableSneakPeek", default: false)
+    static let enableSneakPeek = Key<Bool>("enableSneakPeek", default: true)
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let timerActivityEnabled = Key<Bool>("timerActivityEnabled", default: true)
     static let remindersActivityEnabled = Key<Bool>("remindersActivityEnabled", default: true)

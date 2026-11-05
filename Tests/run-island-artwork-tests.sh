@@ -87,6 +87,9 @@ for p in (check / 'AirIsland').rglob('*.swift'):
     p.write_text(s)
 p = check / 'AirIsland/ContentView.swift'
 s = p.read_text()
+token = 'expansion: vm.notchState == .open ? 1 : 0,'
+assert token in s
+s = s.replace(token, 'expansion: IslandArtworkRenderProbe.expansionOverride ?? (vm.notchState == .open ? 1 : 0),', 1)
 token = '.onChange(of: vm.notchState)'
 assert token in s
 s = s.replace(token, '''.onAppear {
