@@ -3,24 +3,25 @@
     <channel>
         <title>AirIsland</title>
         <item>
-            <title>2.8.10</title>
-            <pubDate>Thu, 05 Nov 2026 11:41:27 +0800</pubDate>
+            <title>2.8.11</title>
+            <pubDate>Thu, 05 Nov 2026 12:22:50 +0800</pubDate>
             <link>https://github.com/potato0620/AirIsSland/releases</link>
-            <sparkle:version>305</sparkle:version>
-            <sparkle:shortVersionString>2.8.10</sparkle:shortVersionString>
+            <sparkle:version>306</sparkle:version>
+            <sparkle:shortVersionString>2.8.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="plain-text"><![CDATA[- 新增应用内手动更新：通过关于页或菜单栏的“检查更新…”查看版本说明、下载，并确认安装重启。
-- 使用 AirIsland 独立的更新源与 Ed25519 更新包签名，修正更新检查引用上游 2.7.3 的问题；下载包在解压前校验签名。
-- 默认仅手动检查，不增加自动下载或后台更新设置；沿用原有应用标识、偏好和用户数据路径。
+            <description sparkle:format="plain-text"><![CDATA[- 修复音乐频谱柱间距不均：共用频谱控件按显示缩放对齐实际像素，收起与展开两处均使用等宽、等间隔的六柱；保留原有 20 点占位、封面同高上限与实时幅值。
+- 调整设置窗口标题栏布局：将标题和返回按钮交由原生标题栏承载，避免自绘导航落在系统工具栏下；侧栏保持固定宽度与贯通顶部的背景，子页返回和窗口缩放沿用同一导航状态。
 
-首次升级说明：从公开发行的 2.8.9 或更早版本升级，需要手动下载安装本版。已经安装带更新器的本地版本，可以直接通过“检查更新…”升级。
+本次修改仅涉及呈现层，活动来源、调度优先级和生命周期不变。
 
-Apple Silicon（arm64），macOS 14 或更新版本。独立发行包使用本地签名，未经过 Apple 公证。
+验证：1×/2× 频谱真实像素检查、收起/展开渲染、设置窗口浅色/深色及最小/放大尺寸导航检查、活动/媒体/频谱模型测试、更新策略与发布工具检查、架构检查和完整 Release 构建。设置窗口的本机验证环境为 macOS 15.8；macOS 26 的实际外观仍需在对应机器上确认，不代表所有系统权限、显示器及播放器边界均已验收。
 
-本版完成相关模型与发布工具回归、更新策略与真实包签名/篡改检查、架构检查及完整 Release 构建。隔离应用已验证下载、安装、自动重启与测试偏好保留；不代表全部真实系统权限、安装路径、多屏及播放器边界已完成实机验收。
+Apple Silicon（arm64），macOS 14 或更新版本。安装包仍使用本地签名，未经过 Apple 公证；更新后部分系统权限可能需要重新授权。
+
+2.8.10 及带更新器的本地版本可通过“检查更新…”升级。公开发行的 2.8.9 或更早版本仍需手动下载安装。
 ]]></description>
-            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.10/AirIsland-2.8.10-macOS-arm64.zip" length="7812316" type="application/octet-stream" sparkle:edSignature="lfpeviH6UxIc+9gBEtClniY0YKmjrEW1fE9nQyrmMRw3ivGoxXbtwuhZotxJcPTczSf3XZUMR6xC7BEJFhv4Aw=="/>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.11/AirIsland-2.8.11-macOS-arm64.zip" length="7811583" type="application/octet-stream" sparkle:edSignature="pz68XXd6JjGn2BndzlbQtQtvWu+zMQmXrHpehRtlhCALe2OWnlRzr4EAL5pQxmXF/PIPoJOK4n/geE8H9vRZBw=="/>
         </item>
     </channel>
 </rss>
