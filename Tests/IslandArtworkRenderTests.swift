@@ -24,6 +24,7 @@ enum IslandArtworkRenderProbe {
     static var completeReminder: [String: () -> Void] = [:]
     static var reminderWrites: [String] = []
     static var reminderWriteSucceeds = true
+    static var settingsTitleFrame = CGRect.zero
 }
 
 private struct ActionButtonSizes: PreferenceKey {
@@ -68,6 +69,10 @@ private struct ActionButtonSizes: PreferenceKey {
             music.bundleIdentifier = "com.netease.163music"
             music.albumArt = artwork(size: 200)
             ActivityCoordinator.shared.setMusicActive(true)
+            if CommandLine.arguments.contains("--settings-only") {
+                await verifySettingsHeader(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--personal-paging-only") {
                 await verifyPersonalPaging(output: output)
                 exit(0)
@@ -161,7 +166,46 @@ private struct ActionButtonSizes: PreferenceKey {
         NSApplication.shared.run()
     }
 
+    @MainActor static func verifySettingsHeader(output: URL) async {
+        let controller = SettingsWindowController.shared
+        let window = controller.window!
+        defer { window.orderOut(nil) }
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            window.appearance = NSAppearance(named: appearance)
+            for size in [CGSize(width: 760, height: 600), CGSize(width: 1000, height: 760)] {
+                window.setFrame(NSRect(origin: CGPoint(x: -10000, y: -10000), size: size), display: true)
+                window.orderBack(nil)
+                try? await Task.sleep(for: .seconds(0.2))
+                for (page, activity) in [("general", nil), ("activities", ActivitySettingsPage.music),
+                                         ("activities", nil), ("about", nil)] {
+                    controller.navigation.selectedPage = SettingsPage(rawValue: page)
+                    try? await Task.sleep(for: .seconds(0.05))
+                    controller.navigation.activityPage = activity
+                    try? await Task.sleep(for: .seconds(0.1))
+                    let host = window.contentView!
+                    host.layoutSubtreeIfNeeded()
+                    let title = IslandArtworkRenderProbe.settingsTitleFrame
+                    let header = window.titlebarAccessoryViewControllers.first!.view
+                    let titleInWindow = header.convert(NSRect(
+                        x: title.minX, y: header.bounds.height - title.maxY,
+                        width: title.width, height: title.height), to: nil)
+                    require(title.width > 20 && titleInWindow.minX > SettingsView.sidebarWidth,
+                            "Settings title disappeared or crossed into the sidebar: \(titleInWindow)")
+                    require(!header.isHiddenOrHasHiddenAncestor && titleInWindow.minY >= window.contentLayoutRect.maxY,
+                            "Settings title is outside native titlebar layout: title=\(titleInWindow), content=\(window.contentLayoutRect)")
+                    let frameView = host.superview!
+                    let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds)!
+                    frameView.cacheDisplay(in: frameView.bounds, to: rep)
+                    let filename = "settings-\(name)-\(Int(size.width))-\(activity?.rawValue ?? page).png"
+                    try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(filename))
+                }
+            }
+        }
+        print("PASS: settings title is in the native titlebar above detail content in light/dark, both sizes, category and nested navigation")
+    }
+
     @MainActor static func verifySpectrum(output: URL) async {
+        verifySpectrumPixelSpacing(output: output)
         let previousReminders = Defaults[.remindersActivityEnabled]
         let previousTimer = Defaults[.timerActivityEnabled]
         Defaults[.remindersActivityEnabled] = true
@@ -203,17 +247,27 @@ private struct ActionButtonSizes: PreferenceKey {
         let scale = CGFloat(rep.pixelsWide) / host.bounds.width
         let right = (host.bounds.width + IslandArtworkRenderProbe.surfaceSize.width) / 2
         var bands: [Int] = [], currentHeight = 0
+        var compactSpans: [ClosedRange<Int>] = [], bandStart: Int?
         for x in Int((right - 48) * scale)..<Int((right - 2) * scale) {
             var height = 0
             for y in 0..<Int(vm.effectiveClosedNotchHeight * scale) {
                 let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                 if max(c.redComponent, c.greenComponent, c.blueComponent) > 0.3 { height += 1 }
             }
-            if height > 0 { currentHeight = max(currentHeight, height) }
-            else if currentHeight > 0 { bands.append(currentHeight); currentHeight = 0 }
+            if height > 0 {
+                if bandStart == nil { bandStart = x }
+                currentHeight = max(currentHeight, height)
+            } else if currentHeight > 0 {
+                compactSpans.append(bandStart!...x - 1); bandStart = nil
+                bands.append(currentHeight); currentHeight = 0
+            }
         }
-        if currentHeight > 0 { bands.append(currentHeight) }
+        if currentHeight > 0 {
+            compactSpans.append(bandStart!...Int((right - 2) * scale) - 1)
+            bands.append(currentHeight)
+        }
         require(bands.count == 6 && Set(bands).count >= 4, "Rendered spectrum did not contain six independently driven bars: \(bands)")
+        requireUniformSpectrumSpans(compactSpans, context: "compact spectrum")
         require(abs(CGFloat(bands.max()!) / scale - (vm.effectiveClosedNotchHeight - 12)) < 2,
                 "Compact spectrum ceiling is shorter than its cover")
 
@@ -272,18 +326,28 @@ private struct ActionButtonSizes: PreferenceKey {
             - cornerRadiusInsets.opened.top - MusicPlayerImageSizes.panelPadding
         let contentTop = max(24, vm.effectiveClosedNotchHeight) + MusicPlayerImageSizes.sectionSpacing
         var expandedBands: [Int] = [], bandHeight = 0
+        var expandedSpans: [ClosedRange<Int>] = [], expandedStart: Int?
         for x in Int((contentRight - 20) * scale)..<Int(contentRight * scale) {
             var height = 0
             for y in Int((contentTop + 6) * scale)..<Int((contentTop + 36) * scale) {
                 let c = expanded.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                 if min(c.redComponent, c.greenComponent, c.blueComponent) > 0.5 { height += 1 }
             }
-            if height > 0 { bandHeight = max(bandHeight, height) }
-            else if bandHeight > 0 { expandedBands.append(bandHeight); bandHeight = 0 }
+            if height > 0 {
+                if expandedStart == nil { expandedStart = x }
+                bandHeight = max(bandHeight, height)
+            } else if bandHeight > 0 {
+                expandedSpans.append(expandedStart!...x - 1); expandedStart = nil
+                expandedBands.append(bandHeight); bandHeight = 0
+            }
         }
-        if bandHeight > 0 { expandedBands.append(bandHeight) }
+        if bandHeight > 0 {
+            expandedSpans.append(expandedStart!...Int(contentRight * scale) - 1)
+            expandedBands.append(bandHeight)
+        }
         require(expandedBands.count == 6 && expandedBands.min()! >= Int(16 * scale),
                 "Expanded music did not reserve a full six-bar spectrum at the information area's right edge: \(expandedBands)")
+        requireUniformSpectrumSpans(expandedSpans, context: "expanded spectrum")
         activities.post(.musicChange)
         try? await Task.sleep(for: .seconds(0.1))
         require(activities.spectrumRequest == restoredLease, "A song-change emphasis stopped the visible expanded spectrum")
@@ -313,6 +377,38 @@ private struct ActionButtonSizes: PreferenceKey {
         try? await Task.sleep(for: .seconds(0.1))
         require(activities.spectrumRequest == nil, "Disabling spectrum left capture active")
         print("PASS: six frequency bands with cover-height ceiling, expanded top-right spectrum, shared compact/expanded lease, source enable policy, peek exclusion, hidden stop, stale-frame rejection and timer preemption/recovery; hardware capture is inert in this fixture")
+    }
+
+    @MainActor static func verifySpectrumPixelSpacing(output: URL) {
+        for scale: CGFloat in [1, 2] {
+            let renderer = ImageRenderer(content:
+                AudioSpectrumView(isPlaying: .constant(false), maximumHeight: 20)
+                    .foregroundStyle(.white)
+                    .background(.black)
+                    .environment(\.displayScale, scale))
+            renderer.scale = scale
+            let rep = NSBitmapImageRep(cgImage: renderer.cgImage!)
+            var spans: [ClosedRange<Int>] = [], start: Int?
+            for x in 0..<rep.pixelsWide {
+                let visible = (0..<rep.pixelsHigh).contains { y in
+                    let color = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return color.redComponent > 0.3
+                }
+                if visible, start == nil { start = x }
+                if !visible, let first = start { spans.append(first...x - 1); start = nil }
+            }
+            if let first = start { spans.append(first...rep.pixelsWide - 1) }
+            try! rep.representation(using: .png, properties: [:])!.write(
+                to: output.appendingPathComponent("spectrum-grid-\(Int(scale))x.png"))
+            requireUniformSpectrumSpans(spans, context: "\(Int(scale))x spectrum")
+        }
+    }
+
+    static func requireUniformSpectrumSpans(_ spans: [ClosedRange<Int>], context: String) {
+        let widths = spans.map { $0.count }
+        let gaps = zip(spans, spans.dropFirst()).map { $1.lowerBound - $0.upperBound - 1 }
+        require(spans.count == 6 && Set(widths).count == 1 && Set(gaps).count == 1,
+                "\(context) has unequal pixel widths or gaps: widths=\(widths), gaps=\(gaps)")
     }
 
     @MainActor static func verifyMusicEntry(output: URL) async {

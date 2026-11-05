@@ -114,6 +114,20 @@ s = s.replace(token, '''.background {
             }
             ''' + token)
 p.write_text(s)
+p = check / 'AirIsland/components/Settings/SettingsView.swift'
+s = p.read_text()
+token = '.font(.title2.bold())'
+assert token in s
+s = s.replace(token, token + '''.background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.frame(in: .global), initial: true) { _, frame in
+                    IslandArtworkRenderProbe.settingsTitleFrame = frame
+                }
+            }
+        }''')
+p.write_text(s)
+p = check / 'AirIsland/components/Settings/SettingsWindowController.swift'
+p.write_text(p.read_text().replace('private let navigation =', 'let navigation ='))
 p = check / 'AirIsland/components/Notch/NotchHomeView.swift'
 s = p.read_text(); token = '.onAppear { reset() }'; assert token in s
 p.write_text(s.replace(token, '.onAppear { IslandArtworkRenderProbe.appearances += 1; reset() }'))

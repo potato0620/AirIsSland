@@ -11,6 +11,8 @@ import Defaults
 
 class SettingsWindowController: NSWindowController {
     static let shared = SettingsWindowController()
+    private let navigation = SettingsNavigation()
+    private var navigationHeader: NSHostingView<SettingsNavigationHeader>?
     
     private init() {
         let window = NSWindow(
@@ -38,8 +40,8 @@ class SettingsWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
-        // Reserve the native titlebar height for traffic lights; navigation belongs
-        // to the detail view, so it cannot extend into or collapse the fixed sidebar.
+        // Navigation is a native titlebar accessory aligned with the detail column.
+        // Content stays inside contentLayoutRect instead of drawing under the toolbar.
         let toolbar = NSToolbar(identifier: "AirIslandSettingsTitlebar")
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
@@ -57,9 +59,20 @@ class SettingsWindowController: NSWindowController {
         window.identifier = NSUserInterfaceItemIdentifier("AirIslandSettingsWindow")
         
         // Create the SwiftUI content
-        let settingsView = SettingsView()
+        let settingsView = SettingsView(navigation: navigation)
         let hostingView = NSHostingView(rootView: settingsView)
         window.contentView = hostingView
+
+        let header = NSHostingView(rootView: SettingsNavigationHeader(navigation: navigation))
+        header.sizingOptions = []
+        header.frame = NSRect(x: 0, y: 0,
+                              width: window.frame.width - SettingsView.sidebarWidth,
+                              height: SettingsView.headerHeight)
+        navigationHeader = header
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .right
+        accessory.view = header
+        window.addTitlebarAccessoryViewController(accessory)
         
         // Handle window closing
         window.delegate = self
@@ -105,6 +118,13 @@ class SettingsWindowController: NSWindowController {
 }
 
 extension SettingsWindowController: NSWindowDelegate {
+    func windowDidResize(_ notification: Notification) {
+        guard let window, let navigationHeader else { return }
+        navigationHeader.setFrameSize(NSSize(
+            width: max(0, window.frame.width - SettingsView.sidebarWidth),
+            height: navigationHeader.frame.height))
+    }
+
     func windowWillClose(_ notification: Notification) {
         relinquishFocus()
     }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-private enum SettingsPage: String, CaseIterable, Identifiable {
+enum SettingsPage: String, CaseIterable, Identifiable {
     case general, activities, presentation, about
     var id: Self { self }
     var title: LocalizedStringKey {
@@ -29,63 +29,68 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     }
 }
 
-struct SettingsView: View {
-    @State private var selectedPage: SettingsPage? = .general
-    @State private var activityPage: ActivitySettingsPage?
+final class SettingsNavigation: ObservableObject {
+    @Published var selectedPage: SettingsPage? = .general
+    @Published var activityPage: ActivitySettingsPage?
 
-    private var page: SettingsPage { selectedPage ?? .general }
+    var page: SettingsPage { selectedPage ?? .general }
+}
+
+/// Hosted in AppKit's titlebar so native window chrome cannot cover navigation.
+struct SettingsNavigationHeader: View {
+    @ObservedObject var navigation: SettingsNavigation
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button {
+                navigation.activityPage = nil
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 17, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(navigation.activityPage == nil ? .tertiary : .primary)
+            .disabled(navigation.activityPage == nil)
+            .accessibilityLabel(Text("Back"))
+            Text(navigation.activityPage?.title ?? navigation.page.title)
+                .font(.title2.bold())
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct SettingsView: View {
+    static let sidebarWidth: CGFloat = 190
+    static let headerHeight: CGFloat = 52
+    @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                Color.clear.frame(height: 52)
-                List(SettingsPage.allCases, selection: $selectedPage) { page in
-                    Label(page.title, systemImage: page.symbol)
-                        .tag(page)
-                }
-                .listStyle(.sidebar)
+            List(SettingsPage.allCases, selection: $navigation.selectedPage) { page in
+                Label(page.title, systemImage: page.symbol)
+                    .tag(page)
             }
-            .frame(width: 190)
+            .listStyle(.sidebar)
+            .frame(width: Self.sidebarWidth)
+            .background(.bar, ignoresSafeAreaEdges: .top)
 
             Divider()
 
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    Button {
-                        activityPage = nil
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 17, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(activityPage == nil ? .tertiary : .primary)
-                    .disabled(activityPage == nil)
-                    .accessibilityLabel(Text("Back"))
-                    Text(activityPage?.title ?? page.title)
-                        .font(.title2.bold())
-                    Spacer(minLength: 0)
+            Group {
+                if let activityPage = navigation.activityPage {
+                    activityPage.destination
+                } else {
+                    navigation.page.destination { navigation.activityPage = $0 }
                 }
-                .padding(.horizontal, 20)
-                .frame(height: 52)
-
-                Divider()
-
-                Group {
-                    if let activityPage {
-                        activityPage.destination
-                    } else {
-                        page.destination { activityPage = $0 }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .ignoresSafeArea(.container, edges: .top)
-        .onChange(of: selectedPage) { activityPage = nil }
+        .onChange(of: navigation.selectedPage) { navigation.activityPage = nil }
         .formStyle(.grouped)
-        .frame(minWidth: 760, minHeight: 600)
-        .background(Color(NSColor.windowBackgroundColor))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor).ignoresSafeArea(.container, edges: .top))
         .tint(.accentColor)
     }
 }
