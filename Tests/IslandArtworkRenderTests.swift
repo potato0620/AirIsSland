@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Defaults
 import SwiftUI
 
@@ -49,6 +50,10 @@ private struct ActionButtonSizes: PreferenceKey {
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try! FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             verifyDefaultActivityPreferences()
+            if CommandLine.arguments.contains("--onboarding-only") {
+                await verifyOnboarding(output: output)
+                exit(0)
+            }
             let coordinator = IslandWindowCoordinator.shared
             coordinator.firstLaunch = false
             coordinator.helloAnimationRunning = false
@@ -164,6 +169,83 @@ private struct ActionButtonSizes: PreferenceKey {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func verifyOnboarding(output: URL) async {
+        // No providers are started by the isolated runner. Inspect the real
+        // AVPlayerLayer to verify playback, rather than asserting source text.
+        let previousMotion = IslandArtworkRenderProbe.reduceMotion
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: OnboardingLayout.size),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.center()
+        defer {
+            window.orderOut(nil); window.contentView = nil; window.close()
+            IslandArtworkRenderProbe.reduceMotion = previousMotion
+            NSApp.setActivationPolicy(previousPolicy)
+        }
+        for name in ["CardSwitchingGuide", "CardSwitchingGuideDark"] {
+            let url = Bundle.main.url(forResource: name, withExtension: "mp4")!
+            let asset = AVURLAsset(url: url)
+            let duration = try! await asset.load(.duration)
+            let audio = try! await asset.loadTracks(withMediaType: .audio)
+            require(abs(duration.seconds - 7.5) < 0.1 && audio.isEmpty, "Welcome illustration has wrong duration or audio")
+        }
+        require(NSImage(named: "CardSwitchingGuidePoster") != nil, "Reduced-motion poster missing")
+        let movie = CardSwitchingMovieView(url: Bundle.main.url(forResource: "CardSwitchingGuide", withExtension: "mp4")!)
+        window.contentView = movie
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        movie.setPlaybackRequested(true)
+        let player = (movie.layer!.sublayers!.first as! AVPlayerLayer).player!
+        for _ in 0..<40 {
+            if player.currentTime().seconds > 0.15 { break }
+            try? await Task.sleep(for: .seconds(0.1))
+        }
+        require(player.currentTime().seconds > 0.15 && player.rate > 0, "Visible welcome illustration did not play")
+        movie.setPlaybackRequested(false)
+        try? await Task.sleep(for: .seconds(0.15))
+        let paused = player.currentTime().seconds
+        try? await Task.sleep(for: .seconds(0.2))
+        require(player.rate == 0 && abs(player.currentTime().seconds - paused) < 0.05, "Inactive illustration kept playing")
+        movie.setPlaybackRequested(true)
+        window.orderOut(nil)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(player.rate == 0, "Hidden welcome window kept playing")
+        window.close()
+        try? await Task.sleep(for: .seconds(0.15))
+        require((player as! AVQueuePlayer).items().isEmpty && (movie.layer!.sublayers!.first as! AVPlayerLayer).player == nil,
+                "Closed welcome window retained playback resources")
+
+        func movieViews(_ view: NSView) -> [CardSwitchingMovieView] {
+            (view as? CardSwitchingMovieView).map { [$0] } ?? view.subviews.flatMap(movieViews)
+        }
+        for dark in [false, true] {
+            for reduced in [false, true] {
+                IslandArtworkRenderProbe.reduceMotion = reduced
+                for language in ["zh-Hans", "en"] {
+                    for finished in [false, true] {
+                        let host = NSHostingView(rootView: OnboardingView(step: finished ? .finished : .welcome, onFinish: {}, onOpenSettings: {})
+                            .environment(\.locale, Locale(identifier: language))
+                            .preferredColorScheme(dark ? .dark : .light))
+                        window.contentView = host
+                        window.makeKeyAndOrderFront(nil)
+                        try? await Task.sleep(for: .seconds(0.4))
+                        host.layoutSubtreeIfNeeded()
+                        require(host.bounds.size == OnboardingLayout.size, "Welcome content and window sizes diverged")
+                        require(movieViews(host).count == (finished && !reduced ? 1 : 0), "Welcome or Reduced Motion instantiated an unexpected player")
+                        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                        host.cacheDisplay(in: host.bounds, to: rep)
+                        try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("onboarding-\(finished ? "guide" : "welcome")-\(language)-\(dark ? "dark" : "light")-\(reduced ? "static" : "movie").png"))
+                    }
+                }
+            }
+        }
+        print("PASS: local silent welcome movies, visible playback, inactive/hidden pause, resource cleanup, both welcome steps in Chinese/English and light/dark at 560×560, and Reduce Motion static fallback")
     }
 
     @MainActor static func verifyDefaultActivityPreferences() {

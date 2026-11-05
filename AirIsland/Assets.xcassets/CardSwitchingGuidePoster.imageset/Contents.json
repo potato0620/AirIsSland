@@ -1,0 +1,22 @@
+{
+  "images": [
+    {
+      "filename": "CardSwitchingGuidePoster.png",
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "CardSwitchingGuidePosterDark.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

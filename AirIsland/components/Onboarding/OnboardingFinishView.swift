@@ -13,49 +13,43 @@ struct OnboardingFinishView: View {
     let onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        VStack(spacing: 0) {
+            Text("Switch cards")
+                .font(.largeTitle.weight(.semibold))
+                .padding(.top, 16)
 
-            Image(systemName: "sparkles")
-                .font(.system(size: 60))
-                .foregroundColor(.effectiveAccent)
-                .padding()
-
-            Text("You're All Set!")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-
-            Text("You can now enjoy the app. If you want to tweak things further, you can always visit the settings.")
+            Text("Expand the island, then swipe left or right with two fingers.")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            
-            Spacer()
-            Spacer()
+                .padding(.top, 12)
 
-            VStack(spacing: 12) {
-                Button(action: onOpenSettings) {
-                    Label("Customize in Settings", systemImage: "gear")
-                        .controlSize(.large)
-                }
-                .controlSize(.large)
+            Spacer(minLength: 12)
 
-                Button("Finish", action: onFinish)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+            CardSwitchingDemo()
+                .frame(height: 240)
+
+            Text("You can also click the dots in the top-left corner.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                OnboardingActionButton("Customize in Settings", action: onOpenSettings)
+
+                OnboardingActionButton("Finish", prominent: true, action: onFinish)
                     .keyboardShortcut(.defaultAction)
             }
-            .padding(24)
+            .padding(.bottom, OnboardingLayout.inset)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
-                .ignoresSafeArea()
-        )
+        .padding(.horizontal, OnboardingLayout.inset)
     }
 }
 
 #Preview {
-    OnboardingFinishView(onFinish: { }, onOpenSettings: { })
+    OnboardingView(step: .finished, onFinish: {}, onOpenSettings: {})
 }

@@ -6,63 +6,50 @@
 //
 
 import SwiftUI
-import SwiftUIIntrospect
 
 struct WelcomeView: View {
     var onGetStarted: (() -> Void)? = nil
     var body: some View {
-        ZStack(alignment: .top) {
-            ZStack {
-                Image("spotlight")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .padding(.bottom)
-                    .blur(radius: 3)
-                    .offset(y: -5)
-                    .background(SparkleView().opacity(0.6))
-                VStack(spacing: 8) {
-                    Image("logo2")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 100, height: 100)
-                        .padding(.bottom, 8)
-                    Text("AirIsland")
-                        .font(.system(.largeTitle, design: .default))
-                        .fontWeight(.semibold)
-                    Text("Welcome")
-                        .font(.title)
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, 30)
-                    Button {
-                        onGetStarted?()
-                    } label: {
-                        Text("Get started")
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(BorderedProminentButtonStyle())
-                }
-                .padding(.top)
-            }
-            
-            Image("UpstreamAttribution")
+        VStack(spacing: 0) {
+            Spacer(minLength: 32)
+
+            Image("logo2")
                 .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 22)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding()
-                .padding(.bottom, 36)
-                .blendMode(.overlay)
+                .scaledToFit()
+                .frame(width: 96, height: 96)
+                .accessibilityHidden(true)
+
+            Text("Welcome to AirIsland")
+                .font(.largeTitle.weight(.semibold))
+                .padding(.top, 24)
+
+            Text("Music, reminders, and timers, right in your island.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+                .padding(.horizontal, 32)
+
+            Spacer(minLength: 32)
+
+            HStack {
+                Image("UpstreamAttribution")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 164, height: 16)
+                Spacer(minLength: 20)
+                OnboardingActionButton("Get started", prominent: true) { onGetStarted?() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .ignoresSafeArea()
-        .background {
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                .ignoresSafeArea()
-        }
+        .padding(.horizontal, OnboardingLayout.inset)
+        .padding(.top, 24)
+        .padding(.bottom, OnboardingLayout.inset)
     }
 }
 
 #Preview {
-    WelcomeView()
+    OnboardingView(onFinish: {}, onOpenSettings: {})
 }

@@ -426,7 +426,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboardingWindow() {
         if onboardingWindowController == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
+                contentRect: NSRect(origin: .zero, size: OnboardingLayout.size),
                 styleMask: [.titled, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -435,6 +435,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Onboarding"
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
+            window.autorecalculatesKeyViewLoop = true
             window.contentView = NSHostingView(
                 rootView: OnboardingView(
                     onFinish: {
