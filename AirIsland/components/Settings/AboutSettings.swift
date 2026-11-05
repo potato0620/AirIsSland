@@ -28,9 +28,7 @@ struct About: View {
                     Link(destination: URL(string: "https://github.com/potato0620/AirIsSland")!) {
                         Text("GitHub")
                     }
-                    Link(destination: CheckForUpdatesView.releasesURL) {
-                        Text("Download the latest version")
-                    }
+                    CheckForUpdatesView()
                 }
             }
         }

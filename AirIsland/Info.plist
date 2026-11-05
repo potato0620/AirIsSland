@@ -10,5 +10,17 @@
 	<string>AirIsland 需要访问提醒事项，以显示所选列表中的未完成事项，并同步你新增和完成的事项。</string>
 	<key>BNUpdateChannel</key>
 	<string>stable</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/potato0620/AirIsSland/main/updater/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>S/Uo8xaIs1iwP1rdCEf5g2a28YC0UqDTsKjVlARTZgM=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 </dict>
 </plist>
