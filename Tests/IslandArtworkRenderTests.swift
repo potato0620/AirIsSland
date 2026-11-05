@@ -48,6 +48,7 @@ private struct ActionButtonSizes: PreferenceKey {
         Task { @MainActor in
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try! FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            verifyDefaultActivityPreferences()
             let coordinator = IslandWindowCoordinator.shared
             coordinator.firstLaunch = false
             coordinator.helloAnimationRunning = false
@@ -57,7 +58,6 @@ private struct ActionButtonSizes: PreferenceKey {
             Defaults[.enableShadow] = false
             Defaults[.cornerRadiusScaling] = true
             Defaults[.enableHaptics] = false
-            Defaults[.realTimeSpectrum] = false
             Defaults[.remindersActivityEnabled] = false
             verifyDisplayWidths()
             let music = MusicManager.shared
@@ -166,6 +166,26 @@ private struct ActionButtonSizes: PreferenceKey {
         NSApplication.shared.run()
     }
 
+    @MainActor static func verifyDefaultActivityPreferences() {
+        let defaults = UserDefaults.standard
+        let keys = ["remindersActivityEnabled", "timerActivityEnabled"]
+        let previous = defaults.persistentDomain(forName: Bundle.main.bundleIdentifier!) ?? [:]
+        defer {
+            for key in keys {
+                if let value = previous[key] { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        for key in keys { defaults.removeObject(forKey: key) }
+        require(Defaults[.remindersActivityEnabled] && Defaults[.timerActivityEnabled],
+                "Reminders and timer are not enabled for a fresh preference state")
+        Defaults[.remindersActivityEnabled] = false
+        Defaults[.timerActivityEnabled] = false
+        require(!Defaults[.remindersActivityEnabled] && !Defaults[.timerActivityEnabled],
+                "Explicitly disabled reminders or timer were forced back on")
+        print("PASS: reminders/timer default on while explicit off preferences remain effective")
+    }
+
     @MainActor static func verifySettingsHeader(output: URL) async {
         let controller = SettingsWindowController.shared
         let window = controller.window!
@@ -206,6 +226,8 @@ private struct ActionButtonSizes: PreferenceKey {
 
     @MainActor static func verifySpectrum(output: URL) async {
         verifySpectrumPixelSpacing(output: output)
+        let legacySpectrum = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier!)?["realTimeSpectrum"]
+        UserDefaults.standard.set(false, forKey: "realTimeSpectrum")
         let previousReminders = Defaults[.remindersActivityEnabled]
         let previousTimer = Defaults[.timerActivityEnabled]
         Defaults[.remindersActivityEnabled] = true
@@ -226,16 +248,15 @@ private struct ActionButtonSizes: PreferenceKey {
         window.contentView = host
         window.orderBack(nil)
         defer {
-            Defaults[.realTimeSpectrum] = false
+            if let legacySpectrum { UserDefaults.standard.set(legacySpectrum, forKey: "realTimeSpectrum") }
+            else { UserDefaults.standard.removeObject(forKey: "realTimeSpectrum") }
             Defaults[.remindersActivityEnabled] = previousReminders
             Defaults[.timerActivityEnabled] = previousTimer
             timer.cancel()
             window.orderOut(nil); window.contentView = nil; vm.destroy()
         }
         try? await Task.sleep(for: .seconds(0.3))
-        require(activities.spectrumRequest == nil, "Spectrum captured before explicit opt-in")
-        Defaults[.realTimeSpectrum] = true
-        try? await Task.sleep(for: .seconds(0.1))
+        require(activities.spectrumRequest != nil, "Visible music did not enable spectrum automatically or an obsolete off preference blocked it")
         let lease = activities.spectrumRequest!
         let firstSelectPage = IslandArtworkRenderProbe.selectPage!
         activities.receiveSpectrum([0.2, 0.4, 0.6, 0.8, 1, 0.3], for: lease)
@@ -373,10 +394,10 @@ private struct ActionButtonSizes: PreferenceKey {
         timer.cancel()
         try? await Task.sleep(for: .seconds(0.1))
         require(activities.spectrumRequest != nil, "Music spectrum did not recover after timer cancellation")
-        Defaults[.realTimeSpectrum] = false
+        activities.setMusicSpectrumSource(bundleIdentifier: nil, playing: false)
         try? await Task.sleep(for: .seconds(0.1))
-        require(activities.spectrumRequest == nil, "Disabling spectrum left capture active")
-        print("PASS: six frequency bands with cover-height ceiling, expanded top-right spectrum, shared compact/expanded lease, source enable policy, peek exclusion, hidden stop, stale-frame rejection and timer preemption/recovery; hardware capture is inert in this fixture")
+        require(activities.spectrumRequest == nil, "Losing the player source left capture active")
+        print("PASS: automatically enabled six-band spectrum, obsolete off preference ignored, cover-height ceiling, shared compact/expanded lease, peek exclusion, hidden/source-loss stop, stale-frame rejection and timer preemption/recovery; hardware capture is inert in this fixture")
     }
 
     @MainActor static func verifySpectrumPixelSpacing(output: URL) {

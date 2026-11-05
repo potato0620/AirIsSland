@@ -27,9 +27,6 @@ final class ActivityCoordinator: ObservableObject {
     private var musicIsActive = false
 
     private init() {
-        Defaults.publisher(.realTimeSpectrum).sink { [weak self] _ in
-            Task { @MainActor in self?.refreshSpectrum() }
-        }.store(in: &preferences)
         Defaults.publisher(.timerActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in if !Defaults[.timerActivityEnabled] { self?.setTimer(nil) } }
         }.store(in: &preferences)
@@ -86,7 +83,7 @@ final class ActivityCoordinator: ObservableObject {
     private func refreshSpectrum() {
         let expandedMusic = spectrumConsumers.values.contains(true)
         let compactMusic = current?.kind == .music && spectrumConsumers.values.contains(false)
-        spectrum.update(enabled: Defaults[.realTimeSpectrum] && (Defaults[.musicLiveActivityEnabled] || expandedMusic),
+        spectrum.update(enabled: Defaults[.musicLiveActivityEnabled] || expandedMusic,
                         playing: spectrumPlaying && musicIsActive, bundleIdentifier: spectrumBundle, trackIdentifier: spectrumTrack,
                         visible: compactMusic || expandedMusic)
         if spectrumRequest != spectrum.request {
