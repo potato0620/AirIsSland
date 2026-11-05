@@ -3,27 +3,28 @@
     <channel>
         <title>AirIsland</title>
         <item>
-            <title>2.8.13</title>
-            <pubDate>Thu, 05 Nov 2026 13:47:59 +0800</pubDate>
+            <title>2.8.14</title>
+            <pubDate>Thu, 05 Nov 2026 14:35:35 +0800</pubDate>
             <link>https://github.com/potato0620/AirIsSland/releases</link>
-            <sparkle:version>308</sparkle:version>
-            <sparkle:shortVersionString>2.8.13</sparkle:shortVersionString>
+            <sparkle:version>309</sparkle:version>
+            <sparkle:shortVersionString>2.8.14</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="plain-text"><![CDATA[- 更新首次启动的欢迎窗口：统一两步页面的排版、字体、留白与底部操作区，保留品牌和上游署名，移除旧光斑与粒子装饰。
-- 加入卡片切换演示：通过本地静音画面同步展示双指左右滑动与音乐、提醒事项、计时器卡片切换，并提示左上角分页圆点也可切换；手指保持在触控板区域内。
-- 支持浅色、深色和“减少动态效果”。演示在窗口隐藏或应用失去前台时暂停，关闭欢迎窗口后释放播放资源；不连接真实播放器、不创建任务、不申请额外权限。
-- macOS 26 及更新版本采用系统原生玻璃按钮，旧系统采用原生有边框按钮。已有首次启动状态与其他有效偏好保持不变。
+            <description sparkle:format="plain-text"><![CDATA[- 统一音乐、提醒事项和计时器卡片的展开/收起内容模糊过渡，跟随同一几何进度；收起完成前保留退场内容，支持减少动态效果。
+- “显示与交互”新增“显示分页指示器”，默认开启；关闭后隐藏左上角圆点，保留多页滑动、当前选择和原有布局。
+- 歌曲播放变化速览默认开启，保留开关，并尊重已有明确的关闭选择。
+- 移除设置菜单的快捷键提示及绑定；设置仍可通过灵动岛右键菜单或菜单栏图标点击打开，启动引导补充对应说明。
+- 欢迎页演示中的岛贴齐背景卡片顶部；浅色、深色动图与减少动态效果下的静态图示同步调整，手势区域和切换节奏保持一致。
 
-本次修改仅涉及欢迎窗口的呈现层，活动来源、调度优先级与生命周期不变。
+改动集中于呈现层与默认偏好，活动来源、调度优先级和期限规则保持不变。
 
-验证：本地视频无音轨及实际播放、隐藏/停止后的暂停、关闭资源释放、中英文/深浅色的两步 560 × 560 原生布局、减少动态效果静态图示、架构检查、更新包签名与篡改拒绝、发布工具检查和完整 Release 构建。本机验证环境为 macOS 15.8.1；macOS 26/27 原生材质、不同显示器、真实系统权限与所有播放器边界尚未完整实机验收。
+验证：活动/媒体回归测试，三张卡片真实内容的模糊渲染及减少动态效果对照，分页圆点显隐、隐藏后滑动及恢复选择，音乐封面快速反向/中断展开，频谱回归，中英文/深浅色欢迎页与设置窗口原生渲染，演示画面贴顶及手势区域像素检查、架构检查、发布工具检查、更新包签名与篡改拒绝，以及完整 Release 构建。用户已确认本机欢迎页效果；macOS 26/27 原生材质、所有多屏/播放器及权限边界仍未完整实机验收。
 
 Apple Silicon（arm64），macOS 14 或更新版本；实时频谱需要 macOS 14.2 或更新版本。安装包仍使用本地签名，未经过 Apple 公证；更新后部分系统权限可能需要重新授权。
 
 带更新器的版本可通过“检查更新…”升级。2.8.9 或更早的公开发行版本需手动下载安装。
 ]]></description>
-            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.13/AirIsland-2.8.13-macOS-arm64.zip" length="7747793" type="application/octet-stream" sparkle:edSignature="6z4ktTonVbj7RgDP1q4njF/4nOVQ1rz4MeOZ9kEEwqrf0FKOvysMa3gmyqTevQEsyLt+YkV9J2IRtW4Grd5eBQ=="/>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.14/AirIsland-2.8.14-macOS-arm64.zip" length="7753336" type="application/octet-stream" sparkle:edSignature="PJQOvd+5QC/+AOZ7gqG58hs8pzR15XJSB3PtK0+GgXHgK6Tiw9oqB4AWsFCNOzKzu9Tffjx/1aVzO89iVEE8Dg=="/>
         </item>
     </channel>
 </rss>
