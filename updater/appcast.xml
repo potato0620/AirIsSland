@@ -3,29 +3,23 @@
     <channel>
         <title>AirIsland</title>
         <item>
-            <title>2.8.16</title>
-            <pubDate>Fri, 06 Nov 2026 11:32:33 +0800</pubDate>
+            <title>2.8.17</title>
+            <pubDate>Fri, 06 Nov 2026 18:09:30 +0800</pubDate>
             <link>https://github.com/potato0620/AirIsSland/releases</link>
-            <sparkle:version>313</sparkle:version>
-            <sparkle:shortVersionString>2.8.16</sparkle:shortVersionString>
+            <sparkle:version>314</sparkle:version>
+            <sparkle:shortVersionString>2.8.17</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.16
+            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.17 (314)
 
-• 系统反馈开关统一为标准尺寸。
-• HUD 右侧百分比和静音文字预留固定宽度，数字位数变化不再挤压进度条。
-• 支持通过 F14/F15 发送的亮度功能键，例如 HHKB 的 Fn+O/P；保留已有音量和修饰键行为。
-• 设置正文滚动区域与标题栏分开，改善导航标题重叠。
-• 没有当前实时活动时，重新展开记住本次运行中最后手动浏览的页面。
-• 待办列表增加行间距与上下留白，改善滚到两端时的文字残边。
+- 悬停展开的默认延迟调整为 0.2 秒，保留已有自定义设置。
+- 提醒事项支持点击文字原位编辑，回车保存、Esc 取消；点击岛外取消草稿并收起。
+- 优化提醒事项新增按钮的移动与切换动效，以及数量按钮的悬停反馈。
+- 改善音乐分页回弹、切歌进度归零与计时结束页收起过渡。
 
-以上六项已由用户本机验证。活动/媒体模型、HUD 轨道尺寸、按键解码、设置边界、空闲分页、待办布局与输入框回归、架构检查及完整 Release 构建已验证；其他设备、系统版本与权限变化仍需验收。
-
-已知：音乐页边界回弹后连续反向滑动可能短暂跳动。
-
-Apple Silicon · macOS 14+；实时频谱需 macOS 14.2+。本地签名，未经 Apple 公证。
+本版本按要求未重新运行测试；执行了 Release 构建和发布打包。未重新进行真实设备、权限和原地升级验收。
 ]]></description>
-            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.16/AirIsland-2.8.16-macOS-arm64.zip" length="7770424" type="application/octet-stream" sparkle:edSignature="jeyPVADyfLWo+JfqO/8K3V83JSrVEpKjtaGmKqfq0oxordltd35JlCT9LPrVp64SdCXJtROcT3DvvE5XMX48DA=="/>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.17/AirIsland-2.8.17-macOS-arm64.zip" length="7826296" type="application/octet-stream" sparkle:edSignature="LOIRpRqVZ/VV5VtKmKEXTC5fM15ZMZ5g906DU7FMZsjKwsFwom+hQGPb8Yk25VvzvR55/8q6lNxqQusocdN2BA=="/>
         </item>
     </channel>
 </rss>
