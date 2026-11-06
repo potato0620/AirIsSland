@@ -21,7 +21,7 @@ extension Defaults.Keys {
     static let automaticallySwitchDisplay = Key<Bool>("automaticallySwitchDisplay", default: true)
     
     // MARK: Behavior
-    static let minimumHoverDuration = Key<TimeInterval>("minimumHoverDuration", default: 0.3)
+    static let minimumHoverDuration = Key<TimeInterval>("minimumHoverDuration", default: 0.2)
     static let enableHaptics = Key<Bool>("enableHaptics", default: true)
     static let openNotchOnHover = Key<Bool>("openNotchOnHover", default: true)
     static let showPageIndicators = Key<Bool>("showPageIndicators", default: true)
