@@ -48,6 +48,9 @@ s = s.replace(token, token + '''.onAppear { IslandArtworkRenderProbe.finishedTim
 token = 'TimerDurationForm(duration: $duration)'
 assert token in s
 s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = start }')
+token = '        Button { action(); IslandHaptics.alignment() } label: {'
+assert token in s
+s = s.replace(token, '        let _ = IslandArtworkRenderProbe.actionHandlers[icon] = action\n' + token)
 token = '.buttonStyle(IslandActionButtonStyle(tint: tint, iconOnly: true))'
 assert token in s
 p.write_text(s.replace(token, token + '''.onAppear {
@@ -65,11 +68,79 @@ p.write_text(s.replace(token, token + '''.onAppear {
             }'''))
 p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
 s = p.read_text()
-token = '.buttonStyle(ReminderRowButtonStyle()).allowsHitTesting(!completed)'
+token = '.frame(height: 23).allowsHitTesting(!completed)'
 assert token in s
-p.write_text(s.replace(token, token + '''.onAppear {
+p.write_text(s.replace(token, token + '''.onChange(of: task, initial: true) { _, _ in
             IslandArtworkRenderProbe.completeReminder[task.id] = finish
+            IslandArtworkRenderProbe.editReminder[task.id] = edit
+            IslandArtworkRenderProbe.cancelReminder[task.id] = cancel
         }'''))
+p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
+s = p.read_text()
+token = 'return saved\n                                        }'
+assert token in s
+s = s.replace(token, token + '''.onChange(of: active, initial: true) { _, _ in
+                                            IslandArtworkRenderProbe.editReminder[task.id] = { edit(task) }
+                                        }''')
+for title, field in [('Complete task', 'reminderCircleFrames'), ('Edit task', 'reminderTitleFrames')]:
+    token = '.accessibilityLabel(Text("' + title + ': \\(task.title)"))'
+    assert token in s
+    s = s.replace(token, token + '''.background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                        IslandArtworkRenderProbe.'''+field+'''[task.id] = frame
+                    }
+                }
+            }''')
+token = '.onHover { countHovered = $0 }'
+assert token in s
+s = s.replace(token, token + '''.onAppear {
+                        IslandArtworkRenderProbe.hoverReminderCount = { countHovered = $0 }
+                    }''')
+p.write_text(s)
+# Count real view body evaluations for the paging benchmark.
+p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
+s = p.read_text()
+for type_name, counter in [('ReminderTaskRow', 'reminderRowBodies'), ('RemindersActivityPage', 'reminderPageBodies')]:
+    a = s.index('struct ' + type_name + ':')
+    b = s.index('    var body: some View {', a) + len('    var body: some View {')
+    s = s[:b] + '\n        let _ = { IslandArtworkRenderProbe.' + counter + ' += 1 }()' + s[b:]
+p.write_text(s)
+# Observe the two persistent creation controls, including their rendered intermediate geometry.
+p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
+s = p.read_text()
+a = s.index('private struct ReminderCreationControls:')
+b = s.index('struct RemindersActivityPage:', a)
+controls = s[a:b]
+controls = controls.replace('        ZStack(alignment: .trailing) {', '''        let _ = IslandArtworkRenderProbe.creationActions = ["begin": begin, "save": save, "cancel": cancel]
+        ZStack(alignment: .trailing) {''', 1)
+for token, name in [('.animation(nil) { view in view.opacity(crossOpacity) }', 'trailing'), ('.animation(nil) { view in view.offset(x: -separation) }', 'primary')]:
+    assert token in controls
+    controls = controls.replace(token, '''.background {
+                    GeometryReader { geometry in
+                        Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                            IslandArtworkRenderProbe.creationFrames["''' + name + '''"] = frame
+                        }
+                    }
+                }
+                ''' + token)
+p.write_text(s[:a] + controls + s[b:])
+# Keep real local observation/geometry; global desktop input is injected into
+# the production receiver so unrelated human clicks cannot cancel an offscreen fixture.
+p = check / 'AirIsland/components/Notch/IslandWindow.swift'
+s = p.read_text()
+a = s.index('            globalMonitor = NSEvent.addGlobalMonitorForEvents')
+b = s.index('\n        }', a)
+s = s[:a] + '            // Global mouse-down is injected by this isolated fixture.' + s[b:]
+token = '        context.coordinator.action = action'
+assert token in s
+s = s.replace(token, token + '''
+        IslandArtworkRenderProbe.outsideEditingFrame = context.coordinator.screenFrame
+        IslandArtworkRenderProbe.outsideEditingActive = { context.coordinator.isMonitoring }
+        IslandArtworkRenderProbe.outsideEditingLocal = context.coordinator.handleLocalEvent
+        IslandArtworkRenderProbe.outsideEditingGlobal = context.coordinator.receive
+''', 1)
+p.write_text(s)
 p = check / 'AirIsland/Presentation/IslandBackdrop.swift'
 s = p.read_text()
 p.write_text(s.replace('.clipped()', '''.clipped().background {
@@ -83,6 +154,42 @@ p = check / 'AirIsland/managers/RemindersActivityManager.swift'
 s = p.read_text(); start = s.index('    private init() {'); end = s.index('\n    func connect()', start)
 s = s[:start] + '    private init() {}\n' + s[end:]
 s = s.replace('@Published private(set)', '@Published')
+start = s.index('    @discardableResult func add(title: String)')
+end = s.index('    @discardableResult func updateTitle(id: String', start)
+s = s[:start] + '''    @discardableResult func add(title: String) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return false }
+        IslandArtworkRenderProbe.reminderAdds.append(title)
+        guard IslandArtworkRenderProbe.reminderAddSucceeds else { return false }
+        ActivityCoordinator.shared.setReminders(ActivityCoordinator.shared.reminders + [
+            ReminderTask(id: UUID().uuidString, title: title, dueDate: nil, creationDate: Date())
+        ])
+        return true
+    }
+''' + s[end:]
+
+start = s.index('    @discardableResult func updateTitle(id: String')
+end = s.index('    @discardableResult func complete(id: String)', start)
+s = s[:start] + '''    @discardableResult func updateTitle(id: String, originalTitle: String, title: String) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return false }
+        IslandArtworkRenderProbe.reminderTitleWrites.append((id, title))
+        guard IslandArtworkRenderProbe.reminderTitleWriteSucceeds else {
+            errorMessage = "Controlled write failure"
+            return false
+        }
+        guard let task = ActivityCoordinator.shared.reminders.first(where: { $0.id == id }),
+              task.title == originalTitle else {
+            errorMessage = String(localized: "This reminder changed. Reopen it to edit.")
+            return false
+        }
+        errorMessage = nil
+        ActivityCoordinator.shared.setReminders(ActivityCoordinator.shared.reminders.map {
+            $0.id == id ? $0.renamed(to: title) : $0
+        })
+        return true
+    }
+''' + s[end:]
 start = s.index('    @discardableResult func complete(id: String)')
 end = s.index('\n    private var canWrite:', start)
 s = s[:start] + '''    @discardableResult func complete(id: String) -> Bool {

@@ -61,6 +61,11 @@ struct ReminderTask: Identifiable, Equatable {
     let dueDate: Date?
     var listIdentifier: String = ""
     var creationDate: Date? = nil
+
+    func renamed(to title: String) -> ReminderTask {
+        ReminderTask(id: id, title: title, dueDate: dueDate,
+                     listIdentifier: listIdentifier, creationDate: creationDate)
+    }
 }
 
 struct ReminderList: Identifiable, Equatable {

@@ -9,6 +9,91 @@ import Cocoa
 import SkyLightWindow
 import Defaults
 import Combine
+import SwiftUI
+
+/// Mounted only during explicit editing, on the rendered island surface.
+/// Mouse-down observation never consumes the click destined for another view/app.
+struct OutsideEditingClickMonitor: NSViewRepresentable {
+    let action: () -> Void
+
+    final class CaptureView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeNSView(context: Context) -> CaptureView {
+        let view = CaptureView()
+        view.setAccessibilityElement(false)
+        context.coordinator.install(on: view)
+        return view
+    }
+
+    func updateNSView(_ view: CaptureView, context: Context) {
+        context.coordinator.action = action
+    }
+
+    static func dismantleNSView(_ view: CaptureView, coordinator: Coordinator) { coordinator.remove() }
+
+    @MainActor final class Coordinator {
+        var action: () -> Void
+        private weak var view: NSView?
+        private var localMonitor: Any?
+        private var globalMonitor: Any?
+        private var generation = UUID()
+        private var dismissalQueued = false
+        var isMonitoring: Bool { localMonitor != nil || globalMonitor != nil }
+
+        init(action: @escaping () -> Void) { self.action = action }
+
+        func install(on view: NSView) {
+            self.view = view
+            let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+                self?.handleLocalEvent(event) ?? event
+            }
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+                self?.receive(screenPoint: NSEvent.mouseLocation)
+            }
+        }
+
+        func screenFrame() -> NSRect? {
+            guard let view, let window = view.window, window.isVisible else { return nil }
+            return window.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+
+        func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? NSEvent.mouseLocation
+            receive(screenPoint: point)
+            return event
+        }
+
+        func receive(screenPoint: NSPoint) {
+            guard isMonitoring, !dismissalQueued, let frame = screenFrame(),
+                  !frame.contains(screenPoint) else { return }
+            dismissalQueued = true
+            let ticket = generation
+            // Leave AppKit's event delivery and SwiftUI's current update first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == ticket, self.isMonitoring,
+                      self.screenFrame() != nil else { return }
+                self.dismissalQueued = false
+                self.action()
+            }
+        }
+
+        func remove() {
+            generation = UUID()
+            if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+            if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+            localMonitor = nil
+            globalMonitor = nil
+            dismissalQueued = false
+            view = nil
+            action = {}
+        }
+    }
+}
 
 extension SkyLightOperator {
     func undelegateWindow(_ window: NSWindow) {

@@ -121,6 +121,7 @@ struct ContentView: View {
                         artworkReturningToMusic: artworkReturningToMusic,
                         keepsCompactVisible: coordinator.helloAnimationRunning,
                         compactVisibilityChanged: { compactContentVisible = $0 },
+                        outsideEditingClick: cancelEditingAndClose,
                         scalesCorners: Defaults[.cornerRadiusScaling],
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork
                     ))
@@ -294,7 +295,9 @@ struct ContentView: View {
                         expandedPage(page, width: width, expansion: expansion) {
                             switch page {
                             case .music: NotchHomeView(active: pager.selection == .music)
-                            case .reminders: RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
+                            case .reminders:
+                                RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
+                                    .equatable()
                             case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer,
                                                           expansion: expansion)
                             }
@@ -469,6 +472,17 @@ struct ContentView: View {
         vm.open()
     }
 
+    private func cancelEditingAndClose() {
+        guard vm.isEditingActivity, vm.notchState == .open else { return }
+        hoverTask?.cancel()
+        hoverTask = nil
+        withAnimation(islandAnimation) {
+            isHovering = false
+            vm.isEditingActivity = false
+            vm.close()
+        }
+    }
+
     // MARK: - Hover Management
 
     private func handleHover(_ hovering: Bool) {
@@ -573,6 +587,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let artworkReturningToMusic: Bool
     let keepsCompactVisible: Bool
     let compactVisibilityChanged: (Bool) -> Void
+    let outsideEditingClick: () -> Void
     let scalesCorners: Bool
     let isArtworkPaused: Bool
     let showsArtwork: Bool
@@ -635,6 +650,12 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
             // the one island mask, including unanimated trackpad updates.
             .compositingGroup()
             .clipShape(NotchShape(topCornerRadius: top, bottomCornerRadius: bottom))
+            .background {
+                if vm.isEditingActivity && vm.notchState == .open {
+                    OutsideEditingClickMonitor(action: outsideEditingClick)
+                        .transition(.identity)
+                }
+            }
             .overlay(alignment: .top) {
                 Rectangle().fill(.black).frame(height: 1).padding(.horizontal, top)
             }

@@ -3,6 +3,20 @@ import XCTest
 final class PersonalActivityTests: XCTestCase {
     let start = Date(timeIntervalSince1970: 10000)
 
+    func testReminderRenamePreservesIdentityDatesListAndOrder() {
+        let first = ReminderTask(id: "first", title: "Before", dueDate: start,
+                                 listIdentifier: "personal", creationDate: start)
+        let renamed = first.renamed(to: "After")
+        XCTAssertEqual(renamed.title, "After")
+        XCTAssertEqual(renamed.id, first.id)
+        XCTAssertEqual(renamed.dueDate, first.dueDate)
+        XCTAssertEqual(renamed.creationDate, first.creationDate)
+        XCTAssertEqual(renamed.listIdentifier, first.listIdentifier)
+        let newer = ReminderTask(id: "newer", title: "Newer", dueDate: nil,
+                                 creationDate: start.addingTimeInterval(1))
+        XCTAssertEqual(ReminderListSelection().filter([newer, renamed]).map(\.id), ["first", "newer"])
+    }
+
     func testTimerPauseResumeAndSleepCompletionAreRealDeadlines() throws {
         var timer = try XCTUnwrap(TimerSession(duration: 60, now: start))
         timer.pause(at: start.addingTimeInterval(12))

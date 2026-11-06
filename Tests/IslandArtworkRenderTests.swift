@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Defaults
 import Carbon
+import Darwin
 import SwiftUI
 
 // The runner adds an appearance counter to the production artwork in its isolated copy.
@@ -10,6 +11,12 @@ func require(_ condition: Bool, _ message: @autoclosure () -> String) {
 }
 
 enum IslandArtworkRenderProbe {
+    static var outsideEditingFrame: (() -> NSRect?)?
+    static var outsideEditingActive: (() -> Bool)?
+    static var outsideEditingLocal: ((NSEvent) -> NSEvent?)?
+    static var outsideEditingGlobal: ((NSPoint) -> Void)?
+    static var reminderPageBodies = 0
+    static var reminderRowBodies = 0
     static var appearances = 0
     static var reduceMotion = false
     static var mediaKeys: [String] = []
@@ -31,6 +38,17 @@ enum IslandArtworkRenderProbe {
     static var actionHandlers: [String: () -> Void] = [:]
     static var actionAppearances: [String: Int] = [:]
     static var completeReminder: [String: () -> Void] = [:]
+    static var editReminder: [String: () -> Void] = [:]
+    static var cancelReminder: [String: () -> Void] = [:]
+    static var reminderCircleFrames: [String: CGRect] = [:]
+    static var reminderTitleFrames: [String: CGRect] = [:]
+    static var hoverReminderCount: ((Bool) -> Void)?
+    static var creationActions: [String: () -> Void] = [:]
+    static var creationFrames: [String: CGRect] = [:]
+    static var reminderAdds: [String] = []
+    static var reminderAddSucceeds = true
+    static var reminderTitleWrites: [(String, String)] = []
+    static var reminderTitleWriteSucceeds = true
     static var reminderWrites: [String] = []
     static var reminderWriteSucceeds = true
     static var settingsTitleFrame = CGRect.zero
@@ -107,6 +125,10 @@ final class ReminderFocusTestWindow: IslandWindow {
                 await verifySettingsHeader(output: output)
                 exit(0)
             }
+            if CommandLine.arguments.contains("--paging-performance-only") {
+                await measurePagingPerformance(output: output)
+                exit(0)
+            }
             if CommandLine.arguments.contains("--personal-paging-only") {
                 await verifyPersonalPaging(output: output)
                 exit(0)
@@ -138,6 +160,10 @@ final class ReminderFocusTestWindow: IslandWindow {
             }
             if CommandLine.arguments.contains("--reminder-focus-only") {
                 await verifyReminderEditingFocus(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--reminder-edit-only") {
+                await verifyReminderInlineEditing(output: output)
                 exit(0)
             }
             if CommandLine.arguments.contains("--reminders-only") {
@@ -207,6 +233,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
             await verifyFinishedTimerCollapse(output: output)
+            await verifyReminderInlineEditing(output: output)
             await verifyActionButtonSizes(output: output)
             await verifyAlarmMotion(output: output)
             await verifyCompactAlignment(output: output)
@@ -214,6 +241,401 @@ final class ReminderFocusTestWindow: IslandWindow {
             exit(0)
         }
         NSApplication.shared.run()
+    }
+
+    @MainActor static func verifyReminderInlineEditing(output: URL) async {
+        let source = RemindersActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let previousPolicy = NSApp.activationPolicy()
+        let previousEnabled = Defaults[.remindersActivityEnabled]
+        let previousSelection = Defaults[.reminderListIdentifier]
+        let previousAuthorization = source.authorized
+        NSApp.setActivationPolicy(.regular)
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.reminderListIdentifier] = ""
+        source.authorized = true
+        source.errorMessage = nil
+        source.lists = [ReminderList(id: "personal", title: "Personal", account: "", writable: true)]
+        TimerActivityManager.shared.cancel()
+        activities.setMusicActive(false)
+        let first = ReminderTask(id: "edit-first", title: "Buy milk", dueDate: Date(timeIntervalSince1970: 20000),
+                                 listIdentifier: "personal", creationDate: Date(timeIntervalSince1970: 10000))
+        let second = ReminderTask(id: "edit-second", title: "Book dentist", dueDate: nil,
+                                  listIdentifier: "personal", creationDate: Date(timeIntervalSince1970: 10001))
+        activities.setReminders([first, second])
+        IslandArtworkRenderProbe.reminderWrites = []
+        IslandArtworkRenderProbe.reminderTitleWrites = []
+        IslandArtworkRenderProbe.reminderTitleWriteSucceeds = true
+        let delegate = AppDelegate()
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.hideOnClosed = false
+        let window = delegate.createIslandWindow(for: NSScreen.screens[0], with: vm) as! ReminderFocusTestWindow
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        var creationKeyRequests = 0
+        window.onMakeKey = { creationKeyRequests += 1 }
+        NSApp.activate(ignoringOtherApps: true)
+        defer {
+            window.orderOut(nil); window.contentView = nil; window.close()
+            vm.destroy(); delegate.vm.destroy()
+            source.authorized = previousAuthorization; source.errorMessage = nil
+            Defaults[.remindersActivityEnabled] = previousEnabled
+            Defaults[.reminderListIdentifier] = previousSelection
+            activities.setReminders([])
+            NSApp.setActivationPolicy(previousPolicy)
+        }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.25))
+        let host = window.contentView!
+        func capture(_ name: String) -> Double {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            var blue: Double = 0
+            for y in 0..<rep.pixelsHigh {
+                for x in 0..<rep.pixelsWide {
+                    let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    blue += max(0, c.blueComponent - c.redComponent)
+                }
+            }
+            return blue
+        }
+        var editorStage = 0
+        func beginEditing(_ id: String) async {
+            // Button actions are invoked offscreen; supply the app activation a
+            // real pointer click would provide after the panel relinquishes focus.
+            NSApp.activate(ignoringOtherApps: true)
+            try? await Task.sleep(for: .seconds(0.04))
+            IslandArtworkRenderProbe.hover?(true)
+            IslandArtworkRenderProbe.editReminder[id]?()
+        }
+        func editor() async -> NSTextView {
+            editorStage += 1
+            // Let the newly selected row mount and retarget the shared AppKit editor.
+            try? await Task.sleep(for: .seconds(0.05))
+            for _ in 0..<80 {
+                if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { return editor }
+                try? await Task.sleep(for: .seconds(0.025))
+            }
+            require(false, "Inline editing did not acquire the native field editor at stage \(editorStage): editing=\(vm.isEditingActivity), key=\(window.isKeyWindow), appActive=\(NSApp.isActive), focusRequests=\(creationKeyRequests), state=\(vm.notchState), responder=\(String(describing: window.firstResponder))")
+            fatalError()
+        }
+        func type(_ value: String, into editor: NSTextView) async {
+            editor.insertText(value, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            try? await Task.sleep(for: .seconds(0.025))
+        }
+        func key(_ code: UInt16, characters: String, in editor: NSTextView) async {
+            IslandArtworkRenderProbe.hover?(true)
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                isARepeat: false, keyCode: code)!
+            editor.keyDown(with: event)
+            try? await Task.sleep(for: .seconds(0.1))
+        }
+        require(IslandArtworkRenderProbe.outsideEditingActive?() != true,
+                "Outside-click observation remained mounted without editing")
+        // Exercise queued-callback cancellation without observing the user's desktop.
+        do {
+            let view = OutsideEditingClickMonitor.CaptureView(frame: host.bounds)
+            host.addSubview(view)
+            var cancelled = 0
+            let monitor = OutsideEditingClickMonitor.Coordinator { cancelled += 1 }
+            monitor.install(on: view)
+            let rect = monitor.screenFrame()!
+            monitor.receive(screenPoint: NSPoint(x: rect.maxX + 100, y: rect.midY))
+            monitor.remove()
+            try? await Task.sleep(for: .seconds(0.05))
+            require(cancelled == 0 && !monitor.isMonitoring, "Retired observer delivered a stale cancellation")
+            view.removeFromSuperview()
+        }
+        for global in [false, true] {
+            await beginEditing(first.id)
+            let pending = await editor()
+            await type("Outside draft", into: pending)
+            require(IslandArtworkRenderProbe.outsideEditingActive?() == true,
+                    "Editing did not install its outside-click observer")
+            let rect = IslandArtworkRenderProbe.outsideEditingFrame!()!
+            require(abs(rect.width - vm.expandedNotchSize.width) < 0.5
+                        && abs(rect.height - expandedNotchHeight) < 0.5,
+                    "Outside-click region does not match the expanded surface: \(rect)")
+            func localDown(_ point: NSPoint) -> NSEvent {
+                NSEvent.mouseEvent(with: .leftMouseDown, location: window.convertPoint(fromScreen: point),
+                    modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            }
+            for point in [NSPoint(x: rect.midX, y: rect.midY), NSPoint(x: rect.midX, y: rect.maxY - 3)] {
+                let event = localDown(point)
+                require(IslandArtworkRenderProbe.outsideEditingLocal?(event) === event,
+                        "Inside click was consumed")
+                try? await Task.sleep(for: .seconds(0.03))
+                require(vm.isEditingActivity && vm.notchState == .open,
+                        "A click within the expanded/header area cancelled editing")
+            }
+            let point = global ? NSPoint(x: rect.maxX + 5000, y: rect.midY)
+                               : NSPoint(x: rect.midX, y: rect.minY - 3)
+            if global {
+                IslandArtworkRenderProbe.outsideEditingGlobal?(point)
+            } else {
+                require(window.frame.contains(point), "Local outside fixture missed the transparent window margin")
+                let event = localDown(point)
+                require(IslandArtworkRenderProbe.outsideEditingLocal?(event) === event,
+                        "Outside click was consumed instead of delivered normally")
+            }
+            try? await Task.sleep(for: .seconds(0.2))
+            require(!vm.isEditingActivity && vm.notchState == .closed && activities.reminders[0] == first
+                        && IslandArtworkRenderProbe.reminderTitleWrites.isEmpty
+                        && IslandArtworkRenderProbe.reminderWrites.isEmpty,
+                    "Outside click saved a draft, completed a task, or left the island expanded")
+            require(!(window.firstResponder is NSTextView) && IslandArtworkRenderProbe.outsideEditingActive?() != true,
+                    "Outside cancellation left focus/observation active: responder=\(String(describing: window.firstResponder)), monitor=\(String(describing: IslandArtworkRenderProbe.outsideEditingActive?()))")
+            let staleGlobalHandler = IslandArtworkRenderProbe.outsideEditingGlobal
+            vm.open()
+            try? await Task.sleep(for: .seconds(0.6))
+            IslandArtworkRenderProbe.hover?(true)
+            IslandArtworkRenderProbe.selectPage?(.reminders)
+            staleGlobalHandler?(point)
+            try? await Task.sleep(for: .seconds(0.08))
+            require(vm.notchState == .open, "A retired outside observer closed a later expansion")
+        }
+        // Creating a new task uses the same outside-cancel-and-close behavior.
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(for: .seconds(0.04))
+        IslandArtworkRenderProbe.actionHandlers["plus"]?()
+        let addingField = await editor()
+        await type("Discard new task", into: addingField)
+        let addingRect = IslandArtworkRenderProbe.outsideEditingFrame!()!
+        IslandArtworkRenderProbe.outsideEditingGlobal?(NSPoint(x: addingRect.maxX + 100, y: addingRect.midY))
+        try? await Task.sleep(for: .seconds(0.2))
+        require(vm.notchState == .closed && !vm.isEditingActivity && activities.reminders.count == 2
+                    && IslandArtworkRenderProbe.reminderAdds.isEmpty,
+                "Outside click committed an unfinished new task or did not close")
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.hover?(true)
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        print("PASS: inside/header clicks retain editing; local transparent-margin and global outside clicks cancel without writes and close; observers are transient, non-consuming and reject stale callbacks; add drafts are discarded")
+        let titleFrame = IslandArtworkRenderProbe.reminderTitleFrames[first.id]!
+        let circleFrame = IslandArtworkRenderProbe.reminderCircleFrames[first.id]!
+        require(!titleFrame.intersects(circleFrame), "Title editing overlaps the completion target")
+        func titleInkBounds() -> CGRect {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            var minX = rep.pixelsWide, minY = rep.pixelsHigh, maxX = -1, maxY = -1
+            for y in Int(titleFrame.minY * scale)..<Int(titleFrame.maxY * scale) {
+                for x in Int((titleFrame.minX - 3) * scale)..<Int(titleFrame.maxX * scale) {
+                    let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    if min(c.redComponent, c.greenComponent, c.blueComponent) > 0.45 {
+                        minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
+                    }
+                }
+            }
+            require(maxX >= minX && maxY >= minY, "Missing actual title glyph pixels")
+            return CGRect(x: CGFloat(minX) / scale, y: CGFloat(minY) / scale,
+                          width: CGFloat(maxX - minX + 1) / scale, height: CGFloat(maxY - minY + 1) / scale)
+        }
+        let originalInk = titleInkBounds()
+        IslandArtworkRenderProbe.hover?(true)
+        await beginEditing(first.id)
+        let field = await editor()
+        require(vm.isEditingActivity && field.string == first.title && IslandArtworkRenderProbe.reminderWrites.isEmpty,
+                "Clicking the title completed a reminder or lost its title")
+        require(field.selectedRange().length == 0, "Inline edit selected all text instead of placing a caret")
+        guard let nativeField = field.delegate as? NSTextField else {
+            require(false, "Inline editor has no native text control"); return
+        }
+        require(!nativeField.isBordered && !nativeField.drawsBackground && nativeField.focusRingType == .none,
+                "Inline edit reintroduced an input box or focus ring")
+        let editedInk = titleInkBounds()
+        _ = capture("reminder-native-caret")
+        require(abs(editedInk.minX - originalInk.minX) <= 0.5 && abs(editedInk.minY - originalInk.minY) <= 0.5
+                    && abs(editedInk.width - originalInk.width) <= 1 && abs(editedInk.height - originalInk.height) <= 1,
+                "Editing moved or resized the actual title glyphs: label=\(originalInk), editor=\(editedInk)")
+        await type("  Buy oat milk  ", into: field)
+        _ = capture("reminder-inline-editing")
+        await key(36, characters: "\r", in: field)
+        require(activities.reminders[0] == first.renamed(to: "Buy oat milk") && activities.reminders.count == 2
+                    && !vm.isEditingActivity && IslandArtworkRenderProbe.reminderTitleWrites.count == 1,
+                "Return did not commit the title while preserving identity, metadata and count")
+        await beginEditing(second.id)
+        var failedField = await editor()
+        await type("Call dentist", into: failedField)
+        IslandArtworkRenderProbe.reminderTitleWriteSucceeds = false
+        await key(36, characters: "\r", in: failedField)
+        failedField = await editor()
+        _ = capture("reminder-edit-failed-save")
+        require(vm.isEditingActivity && failedField.string == "Call dentist" && activities.reminders[1] == second,
+                "A failed save discarded the draft or changed committed content: editing=\(vm.isEditingActivity), draft=\(failedField.string), saved=\(activities.reminders)")
+        await key(53, characters: "\u{1b}", in: failedField)
+        require(!vm.isEditingActivity && activities.reminders[1] == second, "Escape saved an unwanted edit")
+        require(!(window.firstResponder is NSTextView), "Escape retained the native field editor over the row label")
+        source.errorMessage = nil
+        IslandArtworkRenderProbe.reminderTitleWriteSucceeds = true
+        await beginEditing(first.id)
+        var blankField = await editor()
+        await type("   ", into: blankField)
+        let beforeBlank = IslandArtworkRenderProbe.reminderTitleWrites.count
+        await key(36, characters: "\r", in: blankField)
+        require(vm.isEditingActivity && IslandArtworkRenderProbe.reminderTitleWrites.count == beforeBlank,
+                "Blank title was written or dismissed the editor")
+        blankField = await editor()
+        let external = first.renamed(to: "Changed elsewhere")
+        activities.setReminders([external, second])
+        await type("Local draft", into: blankField)
+        await key(36, characters: "\r", in: blankField)
+        require(activities.reminders[0] == external && vm.isEditingActivity,
+                "An old edit overwrote a newer external title")
+        blankField = await editor()
+        await key(53, characters: "\u{1b}", in: blankField)
+        source.errorMessage = nil
+        await beginEditing(second.id)
+        _ = await editor()
+        activities.setReminders([external])
+        try? await Task.sleep(for: .seconds(0.1))
+        require(!vm.isEditingActivity, "Removing the edited task left the island editing lock active")
+        require(!(window.firstResponder is NSTextView), "Deleting the row retained the native field editor")
+        activities.setReminders([external, second])
+        try? await Task.sleep(for: .seconds(0.4))
+        await beginEditing(second.id)
+        _ = await editor()
+        Defaults[.reminderListIdentifier] = "personal"
+        try? await Task.sleep(for: .seconds(0.1))
+        require(!vm.isEditingActivity, "Changing lists retained an old row edit")
+        await beginEditing(second.id)
+        _ = await editor()
+        source.authorized = false
+        try? await Task.sleep(for: .seconds(0.1))
+        require(!vm.isEditingActivity, "Losing reminder access retained the old editor")
+        source.authorized = true
+        try? await Task.sleep(for: .seconds(0.1))
+        await beginEditing(second.id)
+        _ = await editor()
+        IslandArtworkRenderProbe.selectPage?(.music)
+        try? await Task.sleep(for: .seconds(0.2))
+        require(!vm.isEditingActivity, "Leaving reminders retained the row edit")
+        IslandArtworkRenderProbe.selectPage?(.reminders)
+        try? await Task.sleep(for: .seconds(0.4))
+        IslandArtworkRenderProbe.hoverReminderCount?(false)
+        try? await Task.sleep(for: .seconds(0.5))
+        let normalBlue = capture("reminder-count-resting")
+        IslandArtworkRenderProbe.hoverReminderCount?(true)
+        try? await Task.sleep(for: .seconds(0.5))
+        require(capture("reminder-count-hovered") < normalBlue - 10, "Count hover did not slightly dim its text")
+        IslandArtworkRenderProbe.hoverReminderCount?(false)
+        await beginEditing(first.id)
+        let completingField = await editor()
+        await type("Unsaved draft", into: completingField)
+        let beforeCompletion = IslandArtworkRenderProbe.reminderTitleWrites.count
+        IslandArtworkRenderProbe.completeReminder[first.id]?()
+        require(activities.reminders.map(\.id) == [second.id] && IslandArtworkRenderProbe.reminderWrites == [first.id]
+                    && IslandArtworkRenderProbe.reminderTitleWrites.count == beforeCompletion && !vm.isEditingActivity,
+                "Circle click did not exclusively complete the intended task")
+        // Reuse the production panel and real field editor for both submission paths.
+        try? await Task.sleep(for: .seconds(0.6))
+        IslandArtworkRenderProbe.reminderAdds = []
+        func creationFrame(_ name: String) -> CGRect {
+            host.layoutSubtreeIfNeeded()
+            return IslandArtworkRenderProbe.creationFrames[name] ?? .zero
+        }
+        func verifyNoButtonOverlap() {
+            let primary = creationFrame("primary")
+            let cross = creationFrame("trailing")
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            // Sample the exposed right rim, outside the moving blue control.
+            // System blue can contain red, so do not mistake its own fill for a cross.
+            let sampleX = cross.maxX - 1
+            guard sampleX > primary.maxX + 0.25 else { return }
+            let x = Int(sampleX * scale), y = Int(cross.midY * scale)
+            let red = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!.redComponent
+            if red > 0.025 {
+                require(primary.maxX <= cross.minX + 0.5,
+                        "Visible add and cross circles overlapped: primary=\(primary), cross=\(cross), red=\(red)")
+            }
+        }
+        let resting = creationFrame("primary")
+        require(resting.width == 44 && resting.height == 44, "Creation control lost its 44-point target")
+        for mode in ["cancel", "failure", "check", "return", "reduced"] {
+            IslandArtworkRenderProbe.reduceMotion = mode == "reduced"
+            NSApp.activate(ignoringOtherApps: true)
+            try? await Task.sleep(for: .seconds(0.04))
+            IslandArtworkRenderProbe.hover?(true)
+            window.resignKey()
+            let beforeRequests = creationKeyRequests
+            IslandArtworkRenderProbe.actionHandlers["plus"]?()
+            var opening: [CGFloat] = []
+            for _ in 0..<25 {
+                try? await Task.sleep(for: .seconds(0.016))
+                opening.append(creationFrame("primary").midX)
+                verifyNoButtonOverlap()
+                require(abs(creationFrame("trailing").midX - resting.midX) < 0.5,
+                        "Fading cross moved from its trailing anchor")
+            }
+            _ = capture("reminder-add-\(mode)-opened")
+            let left = creationFrame("primary")
+            require(abs(resting.midX - left.midX - 52) < 0.5, "Check did not settle beside the cross in \(mode): resting=\(resting), trailing=\(creationFrame("trailing")), left=\(left), frames=\(opening)")
+            if mode != "reduced" {
+                require(Set(opening.map { Int($0 * 10) }).count >= 3
+                            && opening.contains { $0 > left.midX + 3 && $0 < resting.midX - 3 },
+                        "Primary plus-to-check motion snapped")
+            }
+            require(creationKeyRequests > beforeRequests, "New creation did not request committed native focus in \(mode)")
+            let field = await editor()
+            await type("New task \(mode)", into: field)
+            let count = activities.reminders.count
+            if mode == "cancel" {
+                IslandArtworkRenderProbe.creationActions["cancel"]?()
+                try? await Task.sleep(for: .seconds(0.65))
+                require(activities.reminders.count == count && !vm.isEditingActivity,
+                        "Cancel saved a reminder or retained editing")
+                continue
+            }
+            if mode == "failure" {
+                IslandArtworkRenderProbe.reminderAddSucceeds = false
+                IslandArtworkRenderProbe.creationActions["save"]?()
+                try? await Task.sleep(for: .seconds(0.12))
+                require(vm.isEditingActivity && field.string == "New task failure"
+                            && abs(creationFrame("primary").midX - left.midX) < 0.5
+                            && activities.reminders.count == count,
+                        "Failed add moved the check, dismissed its draft or added a task")
+                IslandArtworkRenderProbe.reminderAddSucceeds = true
+                IslandArtworkRenderProbe.creationActions["cancel"]?()
+                try? await Task.sleep(for: .seconds(0.65))
+                continue
+            }
+            if mode == "return" {
+                let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+                field.keyDown(with: event)
+            } else {
+                IslandArtworkRenderProbe.creationActions["save"]?()
+            }
+            require(activities.reminders.count == count + 1, "Creation animation delayed the committed add")
+            var closing: [CGFloat] = []
+            for index in 0..<32 {
+                try? await Task.sleep(for: .seconds(0.016))
+                closing.append(creationFrame("primary").midX)
+                verifyNoButtonOverlap()
+                if index == 3 { _ = capture("reminder-add-\(mode)-returning") }
+            }
+            if mode != "reduced" {
+                require(Set(closing.map { Int($0 * 10) }).count >= 4
+                            && closing.contains { $0 > left.midX + 3 && $0 < resting.midX - 3 },
+                        "Successful add did not move the check continuously into the plus position: \(closing)")
+            }
+            require(abs(creationFrame("primary").midX - resting.midX) < 0.5 && !vm.isEditingActivity,
+                    "Successful add failed to settle at the resting plus position")
+            _ = capture("reminder-add-\(mode)-settled")
+        }
+        IslandArtworkRenderProbe.reduceMotion = false
+        print("PASS: persistent plus moves left into check and reverses right on both native Return and button submission, cross fades only outside the moving circle with painted pixels verified, cancellation/failure preserve data, writes are immediate and Reduce Motion settles directly")
+        print("PASS: click-only titles avoid idle hover hosts; borderless native editing preserves title position and places a caret, title action never completes, Return saves, Escape/failure/conflict/empty title retain valid data, removal/list/page changes release focus, count hover is visible, separate circle action completes")
     }
 
     @MainActor static func verifyReminderEditingFocus(output: URL) async {
@@ -286,6 +708,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 try? await Task.sleep(for: .seconds(0.15))
                 IslandArtworkRenderProbe.hover?(true)
                 NSApp.activate(ignoringOtherApps: true)
+                try? await Task.sleep(for: .seconds(0.04))
                 window.resignKey()
                 let before = requests
                 guard let begin = IslandArtworkRenderProbe.actionHandlers["plus"] else {
@@ -298,8 +721,12 @@ final class ReminderFocusTestWindow: IslandWindow {
                 // yields. Check the committed request and actual field editor.
                 require(vm.isEditingActivity && (requests > before || window.firstResponder is NSTextView),
                         "Actual add action failed to request deferred keyboard focus (editing: \(vm.isEditingActivity), state: \(vm.notchState), visible: \(window.isVisible), key: \(window.isKeyWindow), requests: \(requests), before: \(before))")
+                for _ in 0..<20 {
+                    if window.firstResponder is NSTextView { break }
+                    try? await Task.sleep(for: .seconds(0.025))
+                }
                 require(window.firstResponder is NSTextView,
-                        "Reminder text field failed to install its native field editor")
+                        "Reminder text field failed to install its native field editor (launch: \(launch), attempt: \(attempt), key: \(window.isKeyWindow), active: \(NSApp.isActive), requests: \(requests), before: \(before), responder: \(String(describing: window.firstResponder)))")
                 if attempt == 0 {
                     let host = window.contentView!
                     let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
@@ -1895,6 +2322,88 @@ final class ReminderFocusTestWindow: IslandWindow {
                 "Disabling the timer retained a deadline or its stored session")
         Defaults[.timerActivityEnabled] = true
         print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
+    }
+
+    @MainActor static func measurePagingPerformance(output: URL) async {
+        let activities = ActivityCoordinator.shared
+        let reminders = RemindersActivityManager.shared
+        Defaults[.remindersActivityEnabled] = true
+        Defaults[.timerActivityEnabled] = true
+        reminders.authorized = true
+        reminders.errorMessage = nil
+        TimerActivityManager.shared.cancel()
+        let count = CommandLine.arguments.first { $0.hasPrefix("--performance-reminders=") }
+            .flatMap { Int($0.split(separator: "=").last!) } ?? 24
+        let label = CommandLine.arguments.first { $0.hasPrefix("--performance-label=") }
+            .map { String($0.split(separator: "=").last!) } ?? "current"
+        activities.setReminders((0..<count).map {
+            ReminderTask(id: "performance-\($0)", title: "Task \($0): stable title for repeatable paging", dueDate: nil,
+                         creationDate: Date(timeIntervalSince1970: Double(10000 + $0)))
+        })
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; vm.destroy(); activities.setReminders([]) }
+        vm.open()
+        try? await Task.sleep(for: .seconds(0.8))
+        IslandArtworkRenderProbe.hover?(true)
+        IslandArtworkRenderProbe.selectPage?(.music)
+        try? await Task.sleep(for: .seconds(0.3))
+        func viewCount(_ view: NSView) -> Int { 1 + view.subviews.reduce(0) { $0 + viewCount($1) } }
+        let nativeViews = viewCount(host)
+        IslandArtworkRenderProbe.reminderPageBodies = 0
+        IslandArtworkRenderProbe.reminderRowBodies = 0
+        func cpuSeconds() -> Double {
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
+                 + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
+        }
+        let started = ProcessInfo.processInfo.systemUptime
+        let cpuStart = cpuSeconds()
+        var previousTick = started
+        var intervals: [Double] = []
+        func tick() async {
+            try? await Task.sleep(for: .seconds(0.016))
+            host.layoutSubtreeIfNeeded()
+            let stamp = ProcessInfo.processInfo.systemUptime
+            intervals.append(stamp - previousTick)
+            previousTick = stamp
+        }
+        print("PERFORMANCE READY pid=\(ProcessInfo.processInfo.processIdentifier) reminders=\(count)")
+        for _ in 0..<2 {
+            for (target, direction): (IslandPage, Double) in [(.reminders, 1), (.timer, 1), (.reminders, -1), (.music, -1)] {
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.016, .began)
+                for _ in 0..<32 {
+                    IslandArtworkRenderProbe.horizontalGesture?(direction * vm.expandedNotchSize.width * 0.009, 0.016, .changed)
+                    await tick()
+                }
+                IslandArtworkRenderProbe.horizontalGesture?(0, 0.016, .ended)
+                for _ in 0..<18 { await tick() }
+                require(IslandArtworkRenderProbe.selectedPage == target, "Performance swipe missed target \(target), selected=\(IslandArtworkRenderProbe.selectedPage), position=\(IslandArtworkRenderProbe.renderedPagePosition)")
+            }
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - started
+        let cpu = cpuSeconds() - cpuStart
+        let sorted = intervals.sorted()
+        let result: [String: Any] = [
+            "label": label, "reminders": count, "swipes": 8, "ticks": intervals.count,
+            "wall_seconds": elapsed, "cpu_seconds": cpu, "cpu_percent": cpu / elapsed * 100,
+            "tick_p50_ms": sorted[sorted.count / 2] * 1000,
+            "tick_p95_ms": sorted[Int(Double(sorted.count - 1) * 0.95)] * 1000,
+            "ticks_over_25ms": intervals.filter { $0 > 0.025 }.count,
+            "native_views": nativeViews,
+            "reminder_page_bodies": IslandArtworkRenderProbe.reminderPageBodies,
+            "reminder_row_bodies": IslandArtworkRenderProbe.reminderRowBodies,
+            "scope": "isolated production ContentView, 8 phased swipes at 16ms cadence, offscreen AppKit layout; tick intervals are event-loop cadence, not hardware FPS"
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+        try! data.write(to: output.appendingPathComponent("paging-performance-\(label)-\(count).json"))
+        print(String(data: data, encoding: .utf8)!)
     }
 
     @MainActor static func verifyPersonalPaging(output: URL) async {

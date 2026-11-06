@@ -135,6 +135,36 @@ final class RemindersActivityManager: ObservableObject {
         return save(reminder)
     }
 
+    @discardableResult func updateTitle(id: String, originalTitle: String, title: String) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, canWrite else { return false }
+        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder,
+              !reminder.isCompleted,
+              let calendar = reminder.calendar,
+              currentSelection.includes(listIdentifier: calendar.calendarIdentifier) else {
+            refresh()
+            return false
+        }
+        guard calendar.allowsContentModifications else {
+            errorMessage = String(localized: "This reminders list is read-only.")
+            return false
+        }
+        guard (reminder.title ?? "") == originalTitle else {
+            refresh()
+            errorMessage = String(localized: "This reminder changed. Reopen it to edit.")
+            return false
+        }
+        let previousTitle = reminder.title
+        reminder.title = title
+        guard save(reminder) else { reminder.title = previousTitle; return false }
+        // save() invalidates older queries. Publish only the committed title,
+        // retaining the task's identity, list, creation date and due date.
+        ActivityCoordinator.shared.setReminders(ActivityCoordinator.shared.reminders.map {
+            $0.id == id ? $0.renamed(to: title) : $0
+        })
+        return true
+    }
+
     @discardableResult func complete(id: String) -> Bool {
         guard canWrite else { return false }
         guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { refresh(); return false }

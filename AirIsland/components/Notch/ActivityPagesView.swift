@@ -388,26 +388,177 @@ private struct ReminderCompletionExit: ViewModifier, Animatable {
     }
 }
 
+// A borderless native field keeps the label's font and origin. Its own editor
+// owns the draft; Return submits, Escape cancels, and blur never writes a task.
+private final class ReminderEditSession {
+    let id = UUID()
+    weak var field: ReminderTitleEditor.TextField?
+
+    func end() {
+        field?.mayEdit = { false }
+        field?.releaseEditor()
+    }
+}
+
+private struct ReminderTitleEditor: NSViewRepresentable {
+    let task: ReminderTask
+    let session: ReminderEditSession
+    let isCurrentEdit: () -> Bool
+    let save: (String) -> Bool
+    let cancel: () -> Void
+
+    final class TextField: NSTextField {
+        var mayEdit: () -> Bool = { false }
+        weak var editingWindow: NSWindow?
+        weak var editingFieldEditor: NSTextView?
+
+        func releaseEditor() {
+            let window = window ?? editingWindow
+            let editor = currentEditor() as? NSTextView ?? editingFieldEditor
+            DispatchQueue.main.async { [weak window, weak editor] in
+                guard let window, let editor, window.firstResponder === editor,
+                      (editor.delegate as? NSTextField) === self else { return }
+                // AppKit shares one field editor. Never release a newly selected row.
+                window.makeFirstResponder(nil)
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            let firstAttachment = editingWindow == nil
+            editingWindow = window
+            requestFocus(activateWindow: firstAttachment)
+        }
+
+        func requestFocus(activateWindow: Bool) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.mayEdit(), let window = self.window, window.isVisible,
+                      activateWindow || window.isKeyWindow else { return }
+                if activateWindow && !window.isKeyWindow { window.makeKey() }
+                window.makeFirstResponder(self)
+                if let editor = self.currentEditor() as? NSTextView {
+                    self.editingFieldEditor = editor
+                    editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+                }
+                if self.bounds.contains(self.convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
+                    NSCursor.iBeam.set()
+                }
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        let session: ReminderEditSession
+        var active = true
+        var mayEdit: () -> Bool
+        var save: (String) -> Bool
+        var cancel: () -> Void
+
+        init(_ view: ReminderTitleEditor) {
+            session = view.session
+            mayEdit = view.isCurrentEdit
+            save = view.save
+            cancel = view.cancel
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
+            guard active, mayEdit() else { return false }
+            if command == #selector(NSResponder.insertNewline(_:)) {
+                if !save(textView.string) { session.field?.requestFocus(activateWindow: true) }
+                return true
+            }
+            if command == #selector(NSResponder.cancelOperation(_:)) {
+                cancel()
+                return true
+            }
+            return false
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> TextField {
+        let field = TextField(frame: .zero)
+        field.stringValue = task.title
+        field.font = .preferredFont(forTextStyle: .body)
+        field.textColor = .labelColor
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.isEditable = true
+        field.isSelectable = true
+        field.cell?.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.delegate = context.coordinator
+        session.field = field
+        field.mayEdit = { [weak coordinator = context.coordinator] in
+            coordinator?.active == true && coordinator?.mayEdit() == true
+        }
+        return field
+    }
+
+    func updateNSView(_ field: TextField, context: Context) {
+        context.coordinator.mayEdit = isCurrentEdit
+        context.coordinator.save = save
+        context.coordinator.cancel = cancel
+        // Preserve native uncommitted text through source refreshes and failed saves.
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TextField, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: nsView.intrinsicContentSize.height)
+    }
+
+    static func dismantleNSView(_ field: TextField, coordinator: Coordinator) {
+        coordinator.active = false
+        field.delegate = nil
+        field.releaseEditor()
+    }
+}
+
 private struct ReminderTaskRow: View {
     let task: ReminderTask
+    let isEditing: Bool
+    let isCurrentEdit: () -> Bool
+    let editingSession: ReminderEditSession
+    let edit: () -> Void
+    let save: (String) -> Bool
+    let cancel: () -> Void
     let complete: () -> Bool
     @State private var completed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: finish) {
-            HStack(spacing: 9) {
+        HStack(spacing: 9) {
+            Button(action: finish) {
                 Image(systemName: completed ? "checkmark.circle.fill" : "circle")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(completed ? Color.white : .blue, Color.blue)
                     .contentTransition(.identity)
                     .animation(nil, value: completed)
-                Text(task.title).lineLimit(1).opacity(completed ? 0.45 : 1)
-                Spacer(minLength: 0)
-            }.frame(height: 23).contentShape(Rectangle())
+                    .frame(width: 18, height: 23).contentShape(Rectangle())
+            }
+            .buttonStyle(ReminderRowButtonStyle())
+            .accessibilityLabel(Text("Complete task: \(task.title)"))
+            ZStack(alignment: .leading) {
+                if isEditing && !completed {
+                    ReminderTitleEditor(task: task, session: editingSession, isCurrentEdit: isCurrentEdit, save: save, cancel: cancel)
+                        .id(editingSession.id)
+                        .transition(.identity)
+                } else {
+                    Button(action: edit) {
+                        Text(task.title).font(.body).lineLimit(1).opacity(completed ? 0.45 : 1)
+                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Edit task: \(task.title)"))
+                    .transition(.identity)
+                }
+            }
         }
-        .buttonStyle(ReminderRowButtonStyle()).allowsHitTesting(!completed)
-        .accessibilityLabel(Text("Complete task: \(task.title)"))
+        .frame(height: 23).allowsHitTesting(!completed)
         .transition(reduceMotion ? .opacity : .modifier(active: ReminderCompletionExit(progress: 1), identity: ReminderCompletionExit(progress: 0)))
     }
 
@@ -430,17 +581,59 @@ private struct ReminderRowButtonStyle: ButtonStyle {
     }
 }
 
-struct RemindersActivityPage: View {
+// One persistent primary control moves between plus and check in both directions.
+// The auxiliary cross only fades; the same progress drives the entire transition.
+private struct ReminderCreationControls: View, Animatable {
+    var progress: CGFloat
+    let adding: Bool
+    let empty: Bool
+    let begin: () -> Void
+    let save: () -> Void
+    let cancel: () -> Void
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let separation = 52 * min(1, max(0, progress))
+        // Reveal only after the 44-point circles have two points of clearance.
+        let crossOpacity = min(1, max(0, (separation - 46) / 6))
+        ZStack(alignment: .trailing) {
+            IslandActionButton("Cancel", icon: "xmark", action: cancel)
+                .animation(nil) { view in view.opacity(crossOpacity) }
+                .allowsHitTesting(adding)
+                .accessibilityHidden(!adding)
+            IslandActionButton(adding ? "Add" : "Add reminder",
+                               icon: adding ? "checkmark" : "plus", tint: .blue) {
+                    if adding { save() } else { begin() }
+                }
+                .animation(nil) { view in view.offset(x: -separation) }
+                .disabled(adding && empty)
+        }
+        .frame(width: 96, height: 44, alignment: .trailing)
+    }
+}
+
+struct RemindersActivityPage: View, Equatable {
     var active = true
+    // Only the explicit parent input participates. Local state, Defaults and
+    // observed sources still invalidate this view through their own dependencies.
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.active == rhs.active }
     @EnvironmentObject private var vm: IslandViewModel
     @ObservedObject private var activities = ActivityCoordinator.shared
     @ObservedObject private var source = RemindersActivityManager.shared
     @Default(.remindersActivityEnabled) private var enabled
     @Default(.reminderListIdentifier) private var listIdentifier
     @State private var adding = false
+    @State private var creationTransition = UUID()
     @State private var title = ""
-    @FocusState private var focused: Bool
-    @Namespace private var actionNamespace
+    @State private var editingID: String?
+    @State private var originalTitle = ""
+    @State private var editingSession = ReminderEditSession()
+    @State private var countHovered = false
+    @FocusState private var focused: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -473,13 +666,15 @@ struct RemindersActivityPage: View {
                     Spacer(minLength: 8)
                     Button { source.openReminders() } label: {
                         Text("\(activities.reminders.count) tasks")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color.blue.opacity(countHovered ? 0.82 : 1))
                             .monospacedDigit()
                             .fixedSize()
                             .contentTransition(.numericText(countsDown: true))
                             .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.reminders.count)
                     }
                     .buttonStyle(.plain)
+                    .onHover { countHovered = $0 }
+                    .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: countHovered)
                     .accessibilityHint(Text("Open Reminders"))
                 }.font(.subheadline).lineLimit(1)
                 VStack(alignment: .leading, spacing: 5) {
@@ -491,7 +686,20 @@ struct RemindersActivityPage: View {
                             // Eager layout keeps the last retiring row alive during its transition.
                             VStack(alignment: .leading, spacing: 7) {
                                 ForEach(activities.reminders) { task in
-                                    ReminderTaskRow(task: task) { source.complete(id: task.id) }
+                                    ReminderTaskRow(task: task, isEditing: editingID == task.id,
+                                        isCurrentEdit: { [session = editingSession.id] in
+                                            editingID == task.id && editingSession.id == session && active && vm.isEditingActivity
+                                        },
+                                        editingSession: editingSession,
+                                        edit: { edit(task) },
+                                        save: { [session = editingSession.id] title in saveEdit(id: task.id, session: session, title: title) },
+                                        cancel: { [session = editingSession.id] in
+                                            if editingID == task.id && editingSession.id == session { cancelEdit() }
+                                        }) {
+                                            let saved = source.complete(id: task.id)
+                                            if saved && editingID == task.id { cancelEdit() }
+                                            return saved
+                                        }
                                 }
                             }
                             // Keep a drawing surface for the last row's removal transition.
@@ -512,42 +720,114 @@ struct RemindersActivityPage: View {
                         .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.reminders.map(\.id))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.bottom, adding ? 49 : 0)
                 .overlay(alignment: .bottomTrailing) {
-                    if !adding {
-                        IslandActionButton("Add reminder", icon: "plus", tint: .blue) { adding = true }
-                            .matchedGeometryEffect(id: "reminder-primary", in: actionNamespace)
-                            .transition(.identity)
+                    ZStack(alignment: .trailing) {
+                        if adding {
+                            let inputSession = creationTransition
+                            TextField("Task title", text: $title).textFieldStyle(.roundedBorder).focused($focused, equals: inputSession)
+                                .task {
+                                    await Task.yield()
+                                    guard !Task.isCancelled else { return }
+                                    focused = inputSession
+                                }
+                                .id(inputSession)
+                                .onSubmit { add() }
+                                .onExitCommand { finishAdding() }
+                                .padding(.trailing, 104)
+                                .transition(.opacity)
+                        }
+                        ReminderCreationControls(progress: adding ? 1 : 0, adding: adding,
+                            empty: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                            begin: beginAdding, save: add, cancel: finishAdding)
                     }
-                }
-                if adding {
-                    HStack(spacing: 8) {
-                        TextField("Task title", text: $title).textFieldStyle(.roundedBorder).focused($focused)
-                            .task { focused = true }
-                            .onSubmit { add() }
-                            .transition(.opacity)
-                        IslandActionButton("Add", icon: "checkmark", tint: .blue) { add() }
-                            .matchedGeometryEffect(id: "reminder-primary", in: actionNamespace)
-                            .transition(.identity)
-                            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        IslandActionButton("Cancel", icon: "xmark") { adding = false }
-                            .transition(.opacity)
-                    }
-                    .transition(.identity)
+                    .frame(height: 44)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: adding)
-        .onChange(of: adding) { _, editing in
+        .onChange(of: adding || editingID != nil) { _, editing in
             vm.isEditingActivity = editing
-            if !editing { focused = false }
+            if !editing { focused = nil }
         }
-        .onChange(of: active) { _, active in if !active { adding = false; focused = false } }
-        .onDisappear { vm.isEditingActivity = false }
+        .onChange(of: vm.isEditingActivity) { _, editing in
+            if !editing && (adding || editingID != nil) { cancelEditing() }
+        }
+        .onChange(of: active) { _, active in if !active { cancelEditing() } }
+        .onChange(of: enabled) { _, enabled in if !enabled { cancelEditing() } }
+        .onChange(of: listIdentifier) { _, _ in cancelEditing() }
+        .onChange(of: source.authorized) { _, authorized in if !authorized { cancelEditing() } }
+        .onChange(of: activities.reminders.map(\.id)) { _, ids in
+            if let editingID, !ids.contains(editingID) { cancelEdit() }
+        }
+        .onDisappear { cancelEditing(); vm.isEditingActivity = false }
+    }
+
+    private func edit(_ task: ReminderTask) {
+        guard active, let task = activities.reminders.first(where: { $0.id == task.id }) else { return }
+        vm.isEditingActivity = true
+        creationTransition = UUID()
+        adding = false
+        focused = nil
+        originalTitle = task.title
+        editingSession.end()
+        editingSession = ReminderEditSession()
+        editingID = task.id
+    }
+
+    private func saveEdit(id: String, session: UUID, title: String) -> Bool {
+        guard editingID == id, editingSession.id == session else { return false }
+        guard source.updateTitle(id: id, originalTitle: originalTitle, title: title) else { return false }
+        cancelEdit()
+        return true
+    }
+
+    private func cancelEdit() {
+        editingSession.end()
+        editingID = nil
+        originalTitle = ""
+        vm.isEditingActivity = adding
+    }
+
+    private func beginAdding() {
+        guard active, !adding else { return }
+        cancelEdit()
+        creationTransition = UUID()
+        vm.isEditingActivity = true
+        adding = true
+    }
+
+    private func finishAdding() {
+        guard adding else { return }
+        let transition = UUID()
+        creationTransition = transition
+        withAnimation(IslandAnimations.animation(reduceMotion: reduceMotion), completionCriteria: .removed) {
+            adding = false
+            focused = nil
+        } completion: {
+            guard creationTransition == transition, !adding else { return }
+            // A reversed/reopened animation must not clear the new input.
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                title = ""
+            }
+        }
+    }
+
+    private func cancelEditing() {
+        creationTransition = UUID()
+        adding = false
+        title = ""
+        focused = nil
+        countHovered = false
+        cancelEdit()
     }
 
     private func add() {
-        if source.add(title: title) { title = ""; adding = false }
+        guard adding else { return }
+        if source.add(title: title) { finishAdding() }
     }
 }
 
