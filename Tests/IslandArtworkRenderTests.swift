@@ -15,6 +15,8 @@ enum IslandArtworkRenderProbe {
     static var mediaKeys: [String] = []
     static var hudProgressFrame = CGRect.zero
     static var musicProgressFrame = CGRect.zero
+    static var finishedTimerTexts = 0
+    static var finishedTimerTextFrame = CGRect.zero
     static var surfaceSize = CGSize.zero
     static var musicBackgroundFrame = CGRect.zero
     static var availablePages: [IslandPage] = []
@@ -154,8 +156,13 @@ final class ReminderFocusTestWindow: IslandWindow {
             }
             if CommandLine.arguments.contains("--personal-only") {
                 await verifyPersonalActivityRuntime(output: output)
+                await verifyFinishedTimerCollapse(output: output)
                 await verifyActionButtonSizes(output: output)
                 await verifyAlarmMotion(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--timer-collapse-only") {
+                await verifyFinishedTimerCollapse(output: output)
                 exit(0)
             }
             if CommandLine.arguments.contains("--focus-only") {
@@ -199,6 +206,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             await verifyEnabledPages(output: output)
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
+            await verifyFinishedTimerCollapse(output: output)
             await verifyActionButtonSizes(output: output)
             await verifyAlarmMotion(output: output)
             await verifyCompactAlignment(output: output)
@@ -1567,6 +1575,119 @@ final class ReminderFocusTestWindow: IslandWindow {
             window.contentView = nil
             vm.destroy()
         }
+    }
+
+    @MainActor static func verifyFinishedTimerCollapse(output: URL) async {
+        let source = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        let previousTimerEnabled = Defaults[.timerActivityEnabled]
+        Defaults[.timerActivityEnabled] = true
+        source.cancel()
+        activities.setMusicActive(true)
+        let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
+        vm.hideOnClosed = false
+        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .black
+        let host = NSHostingView(rootView: ContentView().environmentObject(vm))
+        window.contentView = host
+        window.orderBack(nil)
+        defer {
+            source.cancel(); window.orderOut(nil); window.contentView = nil; vm.destroy()
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+            Defaults[.timerActivityEnabled] = previousTimerEnabled
+        }
+        func expansion() -> CGFloat {
+            min(1, max(0, (IslandArtworkRenderProbe.surfaceSize.height - vm.effectiveClosedNotchHeight)
+                / (vm.expandedNotchSize.height - vm.effectiveClosedNotchHeight)))
+        }
+        func snapshot(_ name: String, requireText: Bool) {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            if requireText {
+                let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+                let frame = IslandArtworkRenderProbe.finishedTimerTextFrame
+                var orange = 0
+                for y in max(0, Int(frame.minY * scale))..<min(rep.pixelsHigh, Int(frame.maxY * scale)) {
+                    for x in max(0, Int(frame.minX * scale))..<min(rep.pixelsWide, Int(frame.maxX * scale)) {
+                        let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                        if c.redComponent > 0.5 && c.greenComponent > 0.2 && c.blueComponent < 0.2 { orange += 1 }
+                    }
+                }
+                require(orange > 20, "Finished timer text vanished from an early closing frame")
+            }
+        }
+        func wheels(in view: NSView) -> [NSScrollView] {
+            if let scroll = view as? NSScrollView { return [scroll] }
+            return view.subviews.flatMap { wheels(in: $0) }
+        }
+        for (index, mode) in [(false, false, false, false), (true, false, false, false),
+                              (false, true, false, false), (true, true, false, false),
+                              (false, false, true, false), (true, false, true, false),
+                              (false, false, false, true), (true, false, false, true)].enumerated() {
+            let (restart, interrupt, reduced, external) = mode
+            IslandArtworkRenderProbe.reduceMotion = reduced
+            source.cancel()
+            var finished = TimerSession(duration: 75, now: Date().addingTimeInterval(-76))!
+            require(finished.finishIfDue(at: Date()), "Fixture did not reach its real deadline")
+            activities.setTimer(finished)
+            UserDefaults.standard.set(try! JSONEncoder().encode(finished), forKey: "AirIsland.timerSession.v1")
+            for _ in 0..<100 {
+                try? await Task.sleep(for: .seconds(0.016))
+                if vm.notchState == .open && expansion() > 0.999 && IslandArtworkRenderProbe.finishedTimerTexts > 0 { break }
+            }
+            require(IslandArtworkRenderProbe.finishedTimerTexts > 0, "Finished timer page was not mounted")
+            snapshot("timer-dismiss-\(index)-before", requireText: true)
+            let action = IslandArtworkRenderProbe.actionHandlers[restart ? "arrow.clockwise" : "xmark"]
+            require(action != nil, "Finished timer action was not available")
+            if external {
+                // The shared source path used when another island window confirms.
+                if restart { source.start(duration: finished.duration) }
+                else { source.cancel() }
+            } else { action?() }
+            if restart {
+                require(activities.timer?.phase == .running && activities.timer?.id != finished.id
+                            && activities.timer?.duration == 75,
+                        "Restart waited for the closing animation instead of creating the real timer")
+            } else {
+                require(activities.timer == nil && UserDefaults.standard.data(forKey: "AirIsland.timerSession.v1") == nil,
+                        "Close delayed cancellation or retained the finished record")
+            }
+            var retainedFrames = 0
+            for frame in 0..<(interrupt ? 4 : 35) {
+                try? await Task.sleep(for: .seconds(0.016))
+                let progress = expansion()
+                if !reduced && progress > 0.03 {
+                    require(IslandArtworkRenderProbe.finishedTimerTexts > 0,
+                            "Close/restart flashed the next timer page before collapse at \(progress)")
+                    retainedFrames += 1
+                }
+                snapshot("timer-dismiss-\(index)-\(frame)", requireText: !reduced && progress > 0.85)
+                if progress < 0.001 { break }
+            }
+            if !reduced { require(retainedFrames >= 2, "Closing regression did not inspect intermediate frames") }
+            vm.open()
+            try? await Task.sleep(for: .seconds(0.025))
+            IslandArtworkRenderProbe.selectPage?(.timer)
+            try? await Task.sleep(for: .seconds(0.65))
+            require(IslandArtworkRenderProbe.finishedTimerTexts == 0,
+                    "Reopening restored a stale finished page")
+            if restart {
+                require(activities.timer?.phase == .running && activities.timer!.remaining(at: Date()) > 70,
+                        "Retiring UI reset the restarted business timer")
+                require(wheels(in: host).isEmpty, "Restart reopened the initial picker")
+            } else {
+                require(wheels(in: host).count == 3, "Close did not restore the initial three-wheel picker")
+                IslandArtworkRenderProbe.actionHandlers["play.fill"]?()
+                require(activities.timer?.duration == 1500, "Close restored 00:00 instead of the default 00:25:00 picker")
+            }
+            snapshot("timer-dismiss-\(index)-reopened", requireText: false)
+        }
+        print("PASS: finished close/restart retain rendered completion through collapse, update business immediately, restore default picker/new timer after hiding, and handle interrupted reopening and Reduce Motion")
     }
 
     @MainActor static func verifyPersonalActivityRuntime(output: URL) async {

@@ -295,7 +295,8 @@ struct ContentView: View {
                             switch page {
                             case .music: NotchHomeView(active: pager.selection == .music)
                             case .reminders: RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
-                            case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer)
+                            case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer,
+                                                          expansion: expansion)
                             }
                         }
                     }

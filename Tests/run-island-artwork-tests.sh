@@ -35,6 +35,16 @@ p.write_text(s.replace(token, token + '''.background {
             }'''))
 p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
 s = p.read_text()
+token = 'Text("Timer finished").font(.system(size: 28, weight: .light))'
+assert token in s
+s = s.replace(token, token + '''.onAppear { IslandArtworkRenderProbe.finishedTimerTexts += 1 }
+                        .onDisappear { IslandArtworkRenderProbe.finishedTimerTexts -= 1 }.background {
+                            GeometryReader { geometry in
+                                Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                                    IslandArtworkRenderProbe.finishedTimerTextFrame = frame
+                                }
+                            }
+                        }''')
 token = 'TimerDurationForm(duration: $duration)'
 assert token in s
 s = s.replace(token, token + '.onAppear { IslandArtworkRenderProbe.startTimer = start }')

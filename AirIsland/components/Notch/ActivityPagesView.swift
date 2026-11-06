@@ -86,6 +86,8 @@ struct TimerFinishedIcon: View {
 
 struct TimerActivityPage: View {
     var active = true
+    /// Supplied by the island's rendered geometry; standalone pages have no collapse.
+    var expansion: CGFloat? = nil
     @ObservedObject private var activities = ActivityCoordinator.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedDuration: TimeInterval = 1500
@@ -93,21 +95,23 @@ struct TimerActivityPage: View {
     @State private var lastTimer: TimerSession?
     @State private var runProgress: CGFloat = ActivityCoordinator.shared.timer == nil ? 0 : 1
     @State private var transitionID = UUID()
+    @State private var retiringFinished: TimerSession?
 
     var body: some View {
         Group {
-            if let timer = activities.timer, timer.phase == .finished {
+            if let timer = retiringFinished ?? activities.timer, timer.phase == .finished {
                 HStack(spacing: 14) {
                     HStack(spacing: 10) {
-                        TimerFinishedIcon(isActive: active)
+                        TimerFinishedIcon(isActive: active || retiringFinished != nil)
                         Text("Timer finished").font(.system(size: 28, weight: .light))
                     }.foregroundStyle(.orange)
                     Spacer(minLength: 0)
                     HStack(spacing: 12) {
-                        IslandActionButton("Restart timer", icon: "arrow.clockwise", tint: .orange) { startTimer(timer.duration) }
-                        IslandActionButton("Close", icon: "xmark") { TimerActivityManager.shared.cancel() }
+                        IslandActionButton("Restart timer", icon: "arrow.clockwise", tint: .orange) { dismissFinished(timer, restart: true) }
+                        IslandActionButton("Close", icon: "xmark") { dismissFinished(timer, restart: false) }
                     }
                 }
+                .allowsHitTesting(retiringFinished == nil)
             } else {
                 TimelineView(.animation(minimumInterval: 1, paused: !active || activities.timer?.phase != .running)) { context in
                     TimerInteractionSurface(progress: runProgress,
@@ -119,6 +123,14 @@ struct TimerActivityPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: activities.timer, initial: true) { previous, next in
+            guard retiringFinished == nil else { return }
+            // A confirmation in another island window updates this same source.
+            // Keep this window's finished page through its own collapse as well.
+            if expansion != nil, let previous, previous.phase == .finished,
+               next?.phase != .finished {
+                retiringFinished = previous
+                return
+            }
             if let next { lastTimer = next }
             else if previous != nil { selectedDuration = 1500; pickerID = UUID() }
             let target: CGFloat = next == nil ? 0 : 1
@@ -131,6 +143,35 @@ struct TimerActivityPage: View {
                 guard transitionID == id, activities.timer == nil else { return }
                 lastTimer = nil
             }
+        }
+        .onChange(of: expansion) { _, progress in
+            if let progress, progress <= 0.02 { finishRetirement() }
+        }
+        .onChange(of: active) { _, active in
+            // Reopening during a collapse must show the new real state.
+            if active { finishRetirement() }
+        }
+        .onDisappear { finishRetirement() }
+    }
+
+    private func dismissFinished(_ timer: TimerSession, restart: Bool) {
+        guard activities.timer?.id == timer.id, activities.timer?.phase == .finished else { return }
+        if expansion != nil { retiringFinished = timer }
+        if restart { startTimer(timer.duration) }
+        else { TimerActivityManager.shared.cancel() }
+    }
+
+    private func finishRetirement() {
+        guard retiringFinished != nil else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            transitionID = UUID()
+            retiringFinished = nil
+            lastTimer = activities.timer
+            selectedDuration = 1500
+            pickerID = UUID()
+            runProgress = activities.timer == nil ? 0 : 1
         }
     }
 
