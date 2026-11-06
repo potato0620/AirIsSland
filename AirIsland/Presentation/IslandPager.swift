@@ -23,7 +23,7 @@ struct IslandPager {
     private var anchor = 0
     private var raw: Double = 0
     private var speed: Double = 0
-    private var committed = false
+    private var committed = true
 
     mutating func updatePages(_ pages: [IslandPage]) {
         let available = IslandPage.allCases.filter { pages.contains($0) }
@@ -76,5 +76,10 @@ struct IslandPager {
         return page
     }
 
-    mutating func end() { position = Double(pages.firstIndex(of: selection) ?? 0) }
+    mutating func end() {
+        position = Double(pages.firstIndex(of: selection) ?? 0)
+        // Seal the gesture even when it returned without committing a page.
+        // Late preparation/changed events cannot resurrect its accumulated distance.
+        committed = true
+    }
 }

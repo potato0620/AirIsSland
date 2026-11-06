@@ -1007,7 +1007,8 @@ final class ReminderFocusTestWindow: IslandWindow {
         let leading = (host.bounds.width - vm.expandedNotchSize.width) / 2
         let top = max(24, vm.effectiveClosedNotchHeight) + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding
 
-        // Read the actual cover edge rather than relying on the animation's input.
+        // Read the cover and title pixels, not just the animation's inputs.
+        var capturedTitleLeading: CGFloat?
         func capture(_ name: String? = nil) -> CGFloat? {
             host.layoutSubtreeIfNeeded()
             let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
@@ -1016,6 +1017,13 @@ final class ReminderFocusTestWindow: IslandWindow {
                 try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
             }
             let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let titleLeft = (Int((leading + 12) * scale)..<rep.pixelsWide).first { x in
+                (Int(top * scale)..<Int((top + 25) * scale)).contains { y in
+                    let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return min(c.redComponent, c.greenComponent, c.blueComponent) > 0.96
+                }
+            }
+            capturedTitleLeading = titleLeft.map { CGFloat($0) / scale }
             let row = Int((top + side / 2) * scale)
             let right = (0..<rep.pixelsWide).last { x in
                 let c = rep.colorAt(x: x, y: row)!.usingColorSpace(.deviceRGB)!
@@ -1024,7 +1032,68 @@ final class ReminderFocusTestWindow: IslandWindow {
             return right.map { CGFloat($0 + 1) / scale }
         }
         let finalRight = capture("music-entry-resting")!
+        let finalTitleLeading = capturedTitleLeading!
         require(abs(finalRight - (leading + inset + side)) < 2, "Resting cover moved out of its original slot")
+
+        let gestureInput = HorizontalPagingGesture.Coordinator { delta, seconds, phase in
+            IslandArtworkRenderProbe.horizontalGesture?(delta, seconds, phase)
+        }
+        defer { gestureInput.remove() }
+        var eventTime: Double = 1000
+        func sendNative(_ phase: CGScrollPhase, delta: Int32 = 0, seconds: Double = 0.02) {
+            eventTime += seconds
+            let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                             wheel1: 0, wheel2: -delta, wheel3: 0)!
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+            cg.timestamp = UInt64(eventTime * 1_000_000_000)
+            _ = gestureInput.handleScrollEvent(NSEvent(cgEvent: cg)!)
+        }
+
+        // Pull beyond the music boundary, release, then reverse toward reminders.
+        // A return to the same page must keep the persistent cover on the page's
+        // rendered curve; the separate incoming-cover spring belongs to a page switch.
+        for reduced in [false, true] {
+            IslandArtworkRenderProbe.reduceMotion = reduced
+            sendNative(.began)
+            for _ in 0..<16 {
+                sendNative(.changed, delta: -18, seconds: 0.05)
+                try? await Task.sleep(for: .seconds(0.05))
+            }
+            require(IslandArtworkRenderProbe.selectedPage == .music, "Boundary pull changed the selected page")
+            sendNative(.ended)
+            var maxError: CGFloat = 0
+            for index in 0..<18 {
+                try? await Task.sleep(for: .seconds(0.016))
+                let edge = capture(index % 4 == 0 ? "music-boundary-return-\(reduced)-\(index)" : nil)!
+                let expected = finalRight - IslandArtworkRenderProbe.renderedPagePosition * vm.expandedNotchSize.width
+                maxError = max(maxError, abs(edge - expected))
+            }
+            require(maxError < 3, "Boundary return detached cover from music card by \(maxError) points (Reduce Motion: \(reduced))")
+            // Resting fingers on the trackpad emits mayBegin before the next
+            // actual swipe. This used to replay the previous full boundary pull.
+            sendNative(.mayBegin, seconds: 0.5)
+            for index in 0..<8 {
+                try? await Task.sleep(for: .seconds(0.016))
+                let edge = capture(index == 0 ? "music-native-preparation-\(reduced)" : nil)!
+                require(abs(edge - finalRight) < 2 && abs(capturedTitleLeading! - finalTitleLeading) < 2,
+                        "Native preparation restored the old card offset: cover=\(edge - finalRight), title=\(capturedTitleLeading! - finalTitleLeading)")
+            }
+            let beforeReverse = capture()!
+            sendNative(.began)
+            sendNative(.changed, delta: 4, seconds: 0.05)
+            try? await Task.sleep(for: .seconds(0.016))
+            let afterReverse = capture("music-boundary-reverse-\(reduced)")!
+            require(abs(afterReverse - beforeReverse) < 6 && abs(capturedTitleLeading! - finalTitleLeading) < 6,
+                    "Slow reverse swipe jumped the music card")
+            sendNative(.changed, delta: Int32(vm.expandedNotchSize.width / 2))
+            sendNative(.ended)
+            try? await Task.sleep(for: .seconds(0.4))
+            require(IslandArtworkRenderProbe.selectedPage == .reminders && capture() == nil,
+                    "Reverse swipe did not settle on reminders")
+            IslandArtworkRenderProbe.selectPage?(.music)
+            try? await Task.sleep(for: .seconds(0.7))
+        }
+        IslandArtworkRenderProbe.reduceMotion = false
 
         for page in [IslandPage.reminders, .timer] {
             IslandArtworkRenderProbe.selectPage?(page)
@@ -1123,7 +1192,7 @@ final class ReminderFocusTestWindow: IslandWindow {
         require(abs(capture("music-entry-reduced-motion")! - finalRight) < 2,
                 "Reduce Motion retained a delayed cover animation")
         IslandArtworkRenderProbe.reduceMotion = false
-        print("PASS: music cover trails unchanged page timing from reminders/timer, swipe commit/cancel, rapid reversal, resident-page reopening and interrupted collapse without replay, persistent identity and Reduce Motion")
+        print("PASS: native boundary pull/return/preparation/reverse keeps card and cover stable, music entry timing, swipe commit/cancel, rapid reversal, resident-page reopening, persistent identity and Reduce Motion")
     }
 
     @MainActor static func renderRemindersPage(output: URL) async {

@@ -183,6 +183,23 @@ final class PersonalActivityTests: XCTestCase {
         XCTAssertEqual(pager.position, 0)
     }
 
+    func testEndedBoundaryDragCannotRestoreItsOldDistance() {
+        var pager = IslandPager()
+        pager.begin()
+        XCTAssertNil(pager.drag(delta: -0.6, seconds: 0.4))
+        XCTAssertLessThan(pager.position, -0.1)
+        pager.end()
+        for delta in [0.0, -0.01, 0.01] {
+            XCTAssertNil(pager.drag(delta: delta, seconds: 0.02))
+            XCTAssertEqual(pager.position, 0, "A completed drag restored the previous boundary pull")
+        }
+        pager.begin()
+        XCTAssertNil(pager.drag(delta: 0.01, seconds: 0.05))
+        XCTAssertGreaterThan(pager.position, 0)
+        XCTAssertLessThan(pager.position, 0.01)
+        XCTAssertEqual(pager.drag(delta: 0.4, seconds: 0.02), .reminders)
+    }
+
     func testPagerCommitsOnceBeforeReleaseAndCannotOvershoot() {
         var pager = IslandPager()
         pager.begin()
