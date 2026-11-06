@@ -3,25 +3,29 @@
     <channel>
         <title>AirIsland</title>
         <item>
-            <title>2.8.15</title>
-            <pubDate>Thu, 05 Nov 2026 16:07:42 +0800</pubDate>
+            <title>2.8.16</title>
+            <pubDate>Fri, 06 Nov 2026 11:32:33 +0800</pubDate>
             <link>https://github.com/potato0620/AirIsSland/releases</link>
-            <sparkle:version>310</sparkle:version>
-            <sparkle:shortVersionString>2.8.15</sparkle:shortVersionString>
+            <sparkle:version>313</sparkle:version>
+            <sparkle:shortVersionString>2.8.16</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.15
+            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.16
 
-• 修复部分启动后点击“添加待办”时的闪退，取消、收起或隐藏后不再处理过期的键盘焦点请求。
-• 点击待办页右侧蓝色数量，可打开系统“提醒事项”查看完整任务。
-• 降低实时频谱的绘制和订阅开销，隐藏或暂停的音乐进度、计时器页面停止无效刷新。
-• 展开、收起时频谱持续更新到完全隐藏；切歌、暂停时以约 0.18 秒平滑回落，保留减少动态效果支持。
+• 系统反馈开关统一为标准尺寸。
+• HUD 右侧百分比和静音文字预留固定宽度，数字位数变化不再挤压进度条。
+• 支持通过 F14/F15 发送的亮度功能键，例如 HHKB 的 Fn+O/P；保留已有音量和修饰键行为。
+• 设置正文滚动区域与标题栏分开，改善导航标题重叠。
+• 没有当前实时活动时，重新展开记住本次运行中最后手动浏览的页面。
+• 待办列表增加行间距与上下留白，改善滚到两端时的文字残边。
 
-原生面板与输入框回归、频谱绘制/重置/可见性回归、卡片过渡/分页、架构检查、发布工具测试和完整 Release 构建已验证；本机待办闪退修复已由用户确认。其他 macOS 版本、多屏、全部播放器及权限变化仍需真实设备验收。
+以上六项已由用户本机验证。活动/媒体模型、HUD 轨道尺寸、按键解码、设置边界、空闲分页、待办布局与输入框回归、架构检查及完整 Release 构建已验证；其他设备、系统版本与权限变化仍需验收。
 
-Apple Silicon · macOS 14 或更新版本；实时频谱需 macOS 14.2 或更新版本。发行包沿用本地签名，未经 Apple 公证。
+已知：音乐页边界回弹后连续反向滑动可能短暂跳动。
+
+Apple Silicon · macOS 14+；实时频谱需 macOS 14.2+。本地签名，未经 Apple 公证。
 ]]></description>
-            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.15/AirIsland-2.8.15-macOS-arm64.zip" length="7762566" type="application/octet-stream" sparkle:edSignature="jT8OHjmDIPTI7viuB6SZtaUjvsuNqH7hHvJZOpbjI2/pkAqx0i7Qfxc4fAF/iQVlBkxh60kv5OOLOVW1Zr/0Cw=="/>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.16/AirIsland-2.8.16-macOS-arm64.zip" length="7770424" type="application/octet-stream" sparkle:edSignature="jeyPVADyfLWo+JfqO/8K3V83JSrVEpKjtaGmKqfq0oxordltd35JlCT9LPrVp64SdCXJtROcT3DvvE5XMX48DA=="/>
         </item>
     </channel>
 </rss>
