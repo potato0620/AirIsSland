@@ -14,6 +14,7 @@ enum IslandArtworkRenderProbe {
     static var reduceMotion = false
     static var mediaKeys: [String] = []
     static var hudProgressFrame = CGRect.zero
+    static var musicProgressFrame = CGRect.zero
     static var surfaceSize = CGSize.zero
     static var musicBackgroundFrame = CGRect.zero
     static var availablePages: [IslandPage] = []
@@ -164,6 +165,11 @@ final class ReminderFocusTestWindow: IslandWindow {
             if CommandLine.arguments.contains("--playback-only") {
                 await verifyArtworkReadiness()
                 await verifySeekingDoesNotAnnounceTrackChanges()
+                await verifyTrackSwitchProgress(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--progress-only") {
+                await verifyTrackSwitchProgress(output: output)
                 exit(0)
             }
             for (index, screen) in NSScreen.screens.enumerated() {
@@ -187,6 +193,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             await verify(screen: NSScreen.screens[0], name: "reduced-motion", output: output)
             await verifyArtworkReadiness()
             await verifySeekingDoesNotAnnounceTrackChanges()
+            await verifyTrackSwitchProgress(output: output)
             await verifyMusicEntry(output: output)
             await verifyPersonalPaging(output: output)
             await verifyEnabledPages(output: output)
@@ -2524,6 +2531,132 @@ final class ReminderFocusTestWindow: IslandWindow {
             rect.fill()
             return true
         }
+    }
+
+    @MainActor static func verifyTrackSwitchProgress(output: URL) async {
+        let music = MusicManager.shared
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        defer { IslandArtworkRenderProbe.reduceMotion = previousReduceMotion }
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 360, height: 150),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .black
+        let host = NSHostingView(rootView: AnyView(MusicControlsView().preferredColorScheme(.dark).background(.black)))
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func update(_ payload: String) -> NowPlayingUpdate {
+            try! JSONDecoder().decode(NowPlayingUpdate.self, from: Data(payload.utf8))
+        }
+        func fill(_ name: String) -> Double {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+            let frame = IslandArtworkRenderProbe.musicProgressFrame
+            require(frame.width > 100, "Production music progress track was not measured")
+            // Locate the continuous track in the bitmap itself; a hosting view's
+            // global Y can use a different origin from its cached image.
+            let columns = [frame.minX + 5, frame.midX, frame.maxX - 5].map { Int($0 * scale) }
+            let trackRows = (0..<rep.pixelsHigh).filter { y in
+                columns.allSatisfy { x in
+                    let c = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
+                    return min(c.redComponent, c.greenComponent, c.blueComponent) > 0.15
+                }
+            }
+            require(!trackRows.isEmpty, "Could not locate the rendered music progress track")
+            // Sample its interior, not a fractional antialiased top edge.
+            let row = trackRows[trackRows.count / 2]
+            let filled = (Int(frame.minX * scale)..<Int(frame.maxX * scale)).filter { x in
+                let c = rep.colorAt(x: x, y: row)!.usingColorSpace(.deviceRGB)!
+                return max(c.redComponent, c.greenComponent, c.blueComponent) > 0.65
+            }.count
+            try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+            return Double(filled) / Double(frame.width * scale)
+        }
+        for (direction, reduced): (String, Bool) in [("next", false), ("previous", false), ("next-reduced", true), ("previous-reduced", true)] {
+            IslandArtworkRenderProbe.reduceMotion = reduced
+            var session = NowPlayingPlaybackSession()
+            let initial = update(#"{"diff":false,"payload":{"bundleIdentifier":"com.netease.163music","title":"Original","artist":"Artist","album":"Album","duration":300,"elapsedTime":60,"playing":true,"playbackRate":1}}"#)
+            music.updateFromPlaybackState(session.receive(initial, neteaseIsRunning: true))
+            try? await Task.sleep(for: .seconds(0.25))
+            require(fill("progress-\(direction)-initial") > 0.15, "Initial real playback progress was missing")
+            music.updateFromPlaybackState(session.beginTrackChange())
+            require(music.estimatedPlaybackPosition() == 0, "Requested \(direction) switch still extrapolated the old song")
+            var falling: [Double] = []
+            for frame in 0..<12 {
+                try? await Task.sleep(for: .seconds(0.016))
+                falling.append(fill("progress-\(direction)-return-\(frame)"))
+            }
+            require(falling.last! < 0.01 && zip(falling, falling.dropFirst()).allSatisfy { $1 <= $0 + 0.005 },
+                    "Reset did not settle monotonically at zero: \(falling)")
+            if reduced {
+                require(falling.allSatisfy { $0 < 0.01 }, "Reduce Motion retained a progress reset animation")
+            } else {
+                require(falling.filter { $0 > 0.01 && $0 < 0.19 }.count >= 2,
+                        "Progress did not show intermediate reset frames: \(falling)")
+            }
+            let packets = [
+                #"{"diff":true,"payload":{"elapsedTime":180,"playing":true,"playbackRate":0}}"#,
+                #"{"diff":true,"payload":{"title":"Destination","duration":90,"playbackRate":0}}"#,
+                #"{"diff":true,"payload":{"elapsedTime":0,"playing":false}}"#,
+            ]
+            for (index, packet) in packets.enumerated() {
+                music.updateFromPlaybackState(session.receive(update(packet), neteaseIsRunning: true))
+                for frame in 0..<4 {
+                    try? await Task.sleep(for: .seconds(0.016))
+                    require(fill("progress-\(direction)-loading-\(index)-\(frame)") < 0.01,
+                            "Old progress flashed while duration/playback packets arrived separately")
+                }
+            }
+            let ready = update(#"{"diff":true,"payload":{"elapsedTime":0.1,"playing":true,"playbackRate":1}}"#)
+            music.updateFromPlaybackState(session.receive(ready, neteaseIsRunning: true))
+            try? await Task.sleep(for: .seconds(0.025))
+            require(fill("progress-\(direction)-ready") < 0.02, "New song reused the old slider value")
+            let seek = update(#"{"diff":true,"payload":{"elapsedTime":40}}"#)
+            music.updateFromPlaybackState(session.receive(seek, neteaseIsRunning: true))
+            try? await Task.sleep(for: .seconds(0.025))
+            let sought = fill("progress-\(direction)-seek")
+            require(sought > 0.4 && sought < 0.5, "Same-song real seek stopped updating the progress immediately")
+            music.updateFromPlaybackState(session.beginTrackChange())
+            music.updateFromPlaybackState(session.confirmPendingPause(now: Date().addingTimeInterval(9)))
+            require(music.estimatedPlaybackPosition() > 30, "Failed switch did not restore the source's actual progress")
+        }
+        // A recently released seek must retain the user's value until the source
+        // acknowledges it, even when its preceding timestamp is only 0.2 s old.
+        IslandArtworkRenderProbe.reduceMotion = false
+        let released = Date()
+        func seekFixture(position: Double, anchor: Date, changing: Bool = false, duration: Double = 90) -> AnyView {
+            AnyView(MusicSliderView(sliderValue: .constant(65), duration: .constant(duration),
+                lastDragged: .constant(released), color: .white, dragging: .constant(false),
+                estimatedPosition: position, timestampDate: anchor, isChangingTrack: changing,
+                onValueChange: { _ in }).preferredColorScheme(.dark).background(.black))
+        }
+        host.rootView = seekFixture(position: 40, anchor: released.addingTimeInterval(-0.2))
+        try? await Task.sleep(for: .seconds(0.025))
+        require(fill("progress-seek-awaiting-ack") > 0.7, "Released seek snapped back before source acknowledgement")
+        host.rootView = seekFixture(position: 70, anchor: released.addingTimeInterval(0.1))
+        try? await Task.sleep(for: .seconds(0.025))
+        require(fill("progress-seek-acknowledged") > 0.76, "Acknowledged seek stayed stuck on local input")
+        host.rootView = seekFixture(position: 40, anchor: released.addingTimeInterval(-0.2), changing: true)
+        try? await Task.sleep(for: .seconds(0.22))
+        require(fill("progress-switch-clears-seek") < 0.01, "Track change retained a previous seek")
+
+        // A cached next song can become ready before the 0.18 s return ends.
+        // Neither its duration nor regular progress ticks may interrupt the fill.
+        host.rootView = seekFixture(position: 120, anchor: released.addingTimeInterval(0.1), duration: 300)
+        try? await Task.sleep(for: .seconds(0.025))
+        host.rootView = seekFixture(position: 0, anchor: released.addingTimeInterval(0.1), changing: true)
+        try? await Task.sleep(for: .seconds(0.04))
+        let warmStart = fill("progress-warm-reset-start")
+        host.rootView = seekFixture(position: 0.1, anchor: released.addingTimeInterval(0.1))
+        try? await Task.sleep(for: .seconds(0.025))
+        let warmMiddle = fill("progress-warm-reset-ready")
+        require(warmStart < 0.405 && warmStart > warmMiddle && warmMiddle > 0.02,
+                "Early playback cut short or stretched the reset: \(warmStart), \(warmMiddle)")
+        try? await Task.sleep(for: .seconds(0.18))
+        require(fill("progress-warm-reset-end") < 0.01, "Warm switch retained the old fill")
+        print("PASS: next/previous ease to zero with intermediate monotonic frames, Reduce Motion resets directly, split packets/warm playback cannot interrupt reset, seek acknowledgement and failure recovery stay stable")
     }
 
     @MainActor static func verifyArtworkReadiness() async {

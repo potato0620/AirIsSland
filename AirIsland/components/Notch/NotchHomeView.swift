@@ -302,18 +302,16 @@ struct MusicControlsView: View {
 
     private var musicSlider: some View {
         TimelineView(.animation(minimumInterval: 0.1,
-                                paused: !active || !musicManager.isPlaying || musicManager.playbackRate <= 0)) { timeline in
+                                paused: !active || !musicManager.isPlaying || musicManager.isChangingTrack || musicManager.playbackRate <= 0)) { timeline in
             MusicSliderView(
                 sliderValue: $sliderValue,
                 duration: $musicManager.songDuration,
                 lastDragged: $lastDragged,
                 color: musicManager.avgColor,
                 dragging: $dragging,
-                currentDate: timeline.date,
+                estimatedPosition: musicManager.estimatedPlaybackPosition(at: timeline.date),
                 timestampDate: musicManager.timestampDate,
-                elapsedTime: musicManager.elapsedTime,
-                playbackRate: musicManager.playbackRate,
-                isPlaying: musicManager.isPlaying
+                isChangingTrack: musicManager.isChangingTrack
             ) { newValue in
                 MusicManager.shared.seek(to: newValue)
             }
@@ -383,30 +381,30 @@ struct MusicSliderView: View {
     @Binding var lastDragged: Date
     var color: NSColor
     @Binding var dragging: Bool
-    let currentDate: Date
+    let estimatedPosition: Double
     let timestampDate: Date
-    let elapsedTime: Double
-    let playbackRate: Double
-    let isPlaying: Bool
+    let isChangingTrack: Bool
     var onValueChange: (Double) -> Void
 
 
     var body: some View {
         VStack {
             CustomSlider(
-                value: $sliderValue,
+                value: Binding(get: { displayedValue }, set: { sliderValue = $0 }),
                 range: 0...duration,
                 color: Defaults[.sliderColor] == SliderColorEnum.albumArt
                     ? Color(nsColor: color).ensureMinimumBrightness(factor: 0.8)
                     : Defaults[.sliderColor] == SliderColorEnum.accent ? .effectiveAccent : .white,
                 dragging: $dragging,
                 lastDragged: $lastDragged,
+                resetsForTrackChange: isChangingTrack,
                 onValueChange: onValueChange
             )
             .frame(height: 10, alignment: .center)
+            .allowsHitTesting(!isChangingTrack)
 
             HStack {
-                Text(timeString(from: sliderValue))
+                Text(timeString(from: displayedValue))
                 Spacer()
                 Text(timeString(from: duration))
             }
@@ -416,10 +414,20 @@ struct MusicSliderView: View {
             )
             .font(.caption)
         }
-        .onChange(of: currentDate) {
-           guard !dragging, timestampDate.timeIntervalSince(lastDragged) > -1 else { return }
-            sliderValue = MusicManager.shared.estimatedPlaybackPosition(at: currentDate)
+        .onChange(of: isChangingTrack) { _, changing in
+            guard changing else { return }
+            dragging = false
+            lastDragged = .distantPast
+            sliderValue = 0
         }
+    }
+
+    private var displayedValue: Double {
+        guard !isChangingTrack else { return 0 }
+        // Local state belongs only to a user's seek. Playback and duration must
+        // render from the same update, without waiting for a later timeline tick.
+        let holdsSeek = dragging || timestampDate < lastDragged
+        return min(max(0, holdsSeek ? sliderValue : estimatedPosition), duration)
     }
 
     func timeString(from seconds: Double) -> String {
@@ -443,8 +451,13 @@ struct CustomSlider: View {
     var color: Color = .white
     @Binding var dragging: Bool
     @Binding var lastDragged: Date
+    var resetsForTrackChange = false
     var onValueChange: ((Double) -> Void)?
     var onDragChange: ((Double) -> Void)?
+    @State private var renderedFill: Double = 0
+    @State private var latestFill: Double = 0
+    @State private var isResetting = false
+    @State private var resetGeneration = 0
 
     var body: some View {
         GeometryReader { geometry in
@@ -453,7 +466,8 @@ struct CustomSlider: View {
             let rangeSpan = range.upperBound - range.lowerBound
 
             let progress = rangeSpan == .zero ? 0 : (value - range.lowerBound) / rangeSpan
-            let filledTrackWidth = min(max(progress, 0), 1) * width
+            let fraction = min(max(progress, 0), 1)
+            let filledTrackWidth = renderedFill * width
 
             ZStack(alignment: .leading) {
                 Rectangle()
@@ -484,6 +498,47 @@ struct CustomSlider: View {
                     }
             )
             .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: dragging)
+            .onChange(of: fraction, initial: true) { previous, current in
+                latestFill = current
+                guard !isResetting else { return }
+                guard resetsForTrackChange, current == 0, previous > 0, !reduceMotion else {
+                    cancelReset()
+                    return
+                }
+                resetGeneration += 1
+                let generation = resetGeneration
+                isResetting = true
+                // Retain only a normalized retiring fill. New duration/position
+                // packets cannot stretch it or interrupt the short return to zero.
+                // Start after parent seek-state cleanup has left this update.
+                // Its unanimated transaction must not cancel the fill's return.
+                Task { @MainActor in
+                    guard generation == resetGeneration, isResetting else { return }
+                    withAnimation(IslandAnimations.mediaReset(reduceMotion: reduceMotion)) {
+                        renderedFill = 0
+                    } completion: {
+                        guard generation == resetGeneration else { return }
+                        cancelReset()
+                    }
+                }
+            }
+            .onChange(of: reduceMotion) { _, reduced in
+                if reduced { cancelReset() }
+            }
+            .onChange(of: dragging) { _, active in
+                if active { cancelReset() }
+            }
+            .onDisappear { cancelReset() }
+        }
+    }
+
+    private func cancelReset() {
+        resetGeneration += 1
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isResetting = false
+            renderedFill = latestFill
         }
     }
 }

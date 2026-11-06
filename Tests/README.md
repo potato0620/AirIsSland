@@ -29,6 +29,8 @@ python3 -m unittest discover -s .github/scripts/tests
 
 这些检查不启动音乐应用，不能替代真实播放验收。
 
+`bash Tests/run-island-artwork-tests.sh --progress-only` 重放生产切歌会话与 `MusicManager`，读取真实音乐进度条像素，验证上一曲/下一曲以 0.18 秒缓出单调回落、减少动态效果时直接归零、旧进度与新时长分批到达不闪回、新歌提前就绪不截断回落、正常播放及 seek 确认即时更新、切歌超时后恢复真实进度；它也包含在 `--playback-only` 与完整检查中。不连接或控制真实播放器，连续网易云切歌仍需实机复测。
+
 媒体模型还覆盖 QQ 音乐、网易云、Apple Music、Spotify 及通用来源的前后跳转进度与条目标识重建，验证歌曲身份及封面替换保持稳定，并保留真正切歌和同名不同艺人的识别。`bash Tests/run-island-artwork-tests.sh --playback-only` 在隔离来源副本中驱动生产 `MusicManager` 和真实调度器，检查进度、标识、封面刷新及同曲暂停恢复不生成切歌活动，实际新歌曲仍更新封面身份并提交提示，高清封面到达不重复提示；同时运行封面加载就绪检查。这不是上述播放器的真实操作验收。并发检查可通过 `AIRISLAND_ARTWORK_CHECK_ROOT` 指定独立输出和测试副本目录，避免互相覆盖。
 
 ## 动画轮廓回归

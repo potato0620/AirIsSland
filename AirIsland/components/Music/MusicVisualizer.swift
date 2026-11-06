@@ -36,7 +36,7 @@ struct AudioSpectrumView: View {
         // Only a reset/pause settles over time. Normal analyzer frames already
         // have an envelope, so they retain the direct, inexpensive drawing path.
         let settles = visible && !reduceMotion && next == MusicSpectrumState.quiet
-        withAnimation(settles ? .easeOut(duration: 0.18) : nil) { levels = next }
+        withAnimation(settles ? IslandAnimations.mediaReset(reduceMotion: reduceMotion) : nil) { levels = next }
     }
 }
 

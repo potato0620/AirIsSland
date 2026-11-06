@@ -309,9 +309,12 @@ class MusicManager: ObservableObject {
 
     // MARK: - Playback Position Estimation
     public func estimatedPlaybackPosition(at date: Date = Date()) -> TimeInterval {
+        // Keep the source's real anchor for failure/cancellation recovery, but
+        // never advance the preceding song while a requested switch is loading.
+        guard !isChangingTrack else { return 0 }
         guard isPlaying else { return min(elapsedTime, songDuration) }
 
-        let timeDifference = date.timeIntervalSince(timestampDate)
+        let timeDifference = max(0, date.timeIntervalSince(timestampDate))
         let estimated = elapsedTime + (timeDifference * playbackRate)
         return min(max(0, estimated), songDuration)
     }

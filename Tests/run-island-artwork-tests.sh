@@ -154,7 +154,17 @@ p = check / 'AirIsland/components/Settings/SettingsWindowController.swift'
 p.write_text(p.read_text().replace('private let navigation =', 'let navigation ='))
 p = check / 'AirIsland/components/Notch/NotchHomeView.swift'
 s = p.read_text(); token = '.onAppear { reset() }'; assert token in s
-p.write_text(s.replace(token, '.onAppear { IslandArtworkRenderProbe.appearances += 1; reset() }'))
+s = s.replace(token, '.onAppear { IslandArtworkRenderProbe.appearances += 1; reset() }')
+token = '.frame(height: 10)\n            .contentShape(Rectangle())'
+assert token in s
+p.write_text(s.replace(token, '''.frame(height: 10).background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.frame(in: .global), initial: true) { _, frame in
+                        IslandArtworkRenderProbe.musicProgressFrame = frame
+                    }
+                }
+            }
+            .contentShape(Rectangle())'''))
 p = check / 'AirIsland/AirIslandApp.swift'
 s = p.read_text().replace('@main\nstruct AirIslandApp', 'struct AirIslandApp', 1)
 # Exercise production window creation and focus subscription without private-space registration.
