@@ -37,20 +37,30 @@ struct IslandActionButton: View {
     let title: LocalizedStringKey
     let icon: String
     let tint: Color?
+    let scalesIcon: Bool
     let action: () -> Void
 
-    init(_ title: LocalizedStringKey, icon: String, tint: Color? = nil, action: @escaping () -> Void) {
+    init(_ title: LocalizedStringKey, icon: String, tint: Color? = nil, scalesIcon: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.icon = icon
         self.tint = tint
+        self.scalesIcon = scalesIcon
         self.action = action
     }
 
     var body: some View {
         Button { action(); IslandHaptics.alignment() } label: {
-            Image(systemName: icon)
-                .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
-                .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: icon)
+            ZStack {
+                if scalesIcon {
+                    Image(systemName: icon)
+                        .id(icon)
+                        .transition(reduceMotion ? .identity : .scale.combined(with: .opacity))
+                } else {
+                    Image(systemName: icon)
+                        .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+                }
+            }
+            .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: icon)
         }
             .buttonStyle(IslandActionButtonStyle(tint: tint, iconOnly: true))
             .accessibilityLabel(Text(title))
@@ -606,7 +616,7 @@ private struct ReminderCreationControls: View, Animatable {
                 .allowsHitTesting(adding)
                 .accessibilityHidden(!adding)
             IslandActionButton(adding ? "Add" : "Add reminder",
-                               icon: adding ? "checkmark" : "plus", tint: .blue) {
+                               icon: adding ? "checkmark" : "plus", tint: .blue, scalesIcon: true) {
                     if adding { save() } else { begin() }
                 }
                 .animation(nil) { view in view.offset(x: -separation) }

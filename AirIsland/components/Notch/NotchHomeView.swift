@@ -32,6 +32,7 @@ struct MusicPlayerView: View {
 struct AlbumArtPresentation: View {
     @ObservedObject private var musicManager = MusicManager.shared
     @State private var appIcon: Image?
+    @State private var appIconBundleIdentifier: String?
     let vm: IslandViewModel
     let expansion: CGFloat
     let closedHeight: CGFloat
@@ -65,9 +66,22 @@ struct AlbumArtPresentation: View {
                 appBadge(appIcon, side: badgeSide, center: badgeCenter, opacity: Double(badgeProgress))
             }
         }
-        .onChange(of: musicManager.bundleIdentifier, initial: true) { _, bundleIdentifier in
-            appIcon = AppIcon(for: bundleIdentifier ?? "com.apple.Music")
+        .onChange(of: musicManager.bundleIdentifier, initial: true) { _, _ in
+            updateAppIcon()
         }
+        .onChange(of: expansion > 0) { _, expanded in
+            if expanded { updateAppIcon() }
+        }
+    }
+
+    private func updateAppIcon() {
+        let identifier = musicManager.bundleIdentifier
+        if appIconBundleIdentifier != identifier {
+            appIcon = nil
+            appIconBundleIdentifier = identifier
+        }
+        guard let identifier, let icon = AppIcon(for: identifier) else { return }
+        appIcon = icon
     }
 
     private func interpolate(_ compact: CGFloat, _ expanded: CGFloat) -> CGFloat {
