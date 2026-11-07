@@ -16,6 +16,34 @@
 
 ## 本地构建与准备
 
+### 本机开发更新的固定签名
+
+`CODE_SIGN_IDENTITY=-` 属于无证书的 ad-hoc 签名，默认指定要求使用本次代码哈希。代码更新后哈希变化，系统保存的隐私授权可能不再匹配。重复弹窗应修复签名身份，不能用清空 TCC、篡改权限记录或关闭系统保护来处理。
+
+没有 Apple Developer 账号时，本机开发可使用固定自签名代码证书。首次初始化：
+
+```sh
+python3 Configuration/signing/local_signing.py init
+```
+
+私钥导入当前用户默认钥匙串，只有 `/usr/bin/codesign` 获准使用；临时私钥和 PKCS#12 文件随临时目录清理。公有证书与身份配置位于 `~/Library/Application Support/AirIsland/LocalSigning`，不进入仓库。工具不安装受信任根证书，不修改 TCC、Gatekeeper 或系统信任设置。请通过钥匙串的安全备份保留此身份；丢失私钥时必须恢复原身份，工具不会自动重新生成。
+
+以后本机安装验证统一使用：
+
+```sh
+bash Configuration/signing/build-local.sh
+```
+
+默认产物在 `build/local-signed/DerivedData/Build/Products/Release/AirIsland.app`。可用 `AIRISLAND_LOCAL_DERIVED_DATA` 指定既有构建目录、`AIRISLAND_SOURCE_PACKAGES` 复用已解析的包缓存。脚本先完成 Release 构建，再从内到外给 AirIslandHelper 和主应用签名，保留各自 bundle ID、权限声明与原标志。最终指定要求同时固定 bundle ID 和证书指纹，不使用只有名称的宽松要求；证书/私钥缺失时失败，不回退 ad-hoc。确认最终签名校验通过后退出旧版再替换，不能安装中间产物。
+
+从旧 ad-hoc 身份切换到此身份，第一次仍需重新同意相应权限。后续构建保持相同签名要求，可在升级前后双向验证身份；音频采集与提醒事项的实际授权是否保留仍需分别做系统升级实测，不能只凭签名测试宣称已完成。此方式用于本机开发，不是 Apple Developer ID 或公证，**不要将本机自签名产物用于正式公开发行**。公开版本应使用同一开发者团队的 Developer ID 身份，并验证跨版本指定要求兼容。参见 Apple [签名要求](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)与[代码签名任务](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html)。
+
+### 当前公开发行包的准备方式
+
+在尚无 Developer ID 证书时，当前公开渠道继续使用以下 ad-hoc 构建方式，而非本机自签名身份。此渠道未公证，代码更新后系统权限仍可能需要重新同意；发布说明必须明确这一限制，不能宣称公开包已解决跨更新授权保留。
+
+当前内置 MediaRemoteAdapter.framework 的 Mach-O 最低系统为 15.0，主应用、辅助进程和发布说明统一要求 macOS 15 及以上。使用新 Xcode/SDK 不等于只能在同版本系统运行；发布前还需核对各嵌套二进制的实际最低系统，不能只读取主应用的 Info.plist。最低目标检查不等于旧系统真机验收。
+
 先同步 `main` 与最新已发布更新列表，再按发布目标递增工程中主应用与辅助服务的版本、构建号，运行相关回归测试，再完整构建 Release。构建号必须大于更新列表中所有已发布条目；营销版本使用稳定的 `major.minor.patch`。禁止用更改版本号后的未重新签名副本发布。
 
 以下是当前 Apple Silicon、本地签名发行方式的构建示例。关闭 Hardened Runtime 是这条本地签名构建命令的参数，避免对没有 Developer ID 的应用启用 Library Validation；不修改工程中正式签名的默认配置。
@@ -51,6 +79,8 @@ python3 .github/scripts/prepare_update.py \
 5. 使用真实旧版检查到该版本，完成一次下载、安装与重启，并核对偏好和必要系统权限。
 
 准备包、发布 Release、推送更新列表是不同操作。对同一个已发布版本不要替换 ZIP；修复后重新递增版本和构建号。
+
+原更新签名私钥暂不可用时，可先发布手动安装的 ZIP、DMG 和校验文件，在发布说明中标明应用内更新暂未开放，并保留现有有效的更新列表。不得重新生成密钥或更换公钥绕过旧版本验签。原密钥恢复后，以已经发布的原始 ZIP 生成签名和更新列表，再验证包哈希及签名后补发列表；不要重新打包或替换同一版本的 ZIP。2.8.18 当前按此手动发布流程交付，更新列表暂保留 2.8.17。
 
 ## 验证
 

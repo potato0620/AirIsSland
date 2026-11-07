@@ -17,6 +17,8 @@ enum IslandArtworkRenderProbe {
     static var outsideEditingGlobal: ((NSPoint) -> Void)?
     static var reminderPageBodies = 0
     static var reminderRowBodies = 0
+    static var musicPageBodies = 0
+    static var timerPageBodies = 0
     static var appearances = 0
     static var reduceMotion = false
     static var mediaKeys: [String] = []
@@ -29,6 +31,7 @@ enum IslandArtworkRenderProbe {
     static var availablePages: [IslandPage] = []
     static var selectedPage = IslandPage.music
     static var renderedPagePosition: CGFloat = 0
+    static var renderedPagePositionTime: TimeInterval = 0
     static var expansionOverride: CGFloat?
     static var selectPage: ((IslandPage) -> Void)?
     static var horizontalGesture: ((Double, Double, NSEvent.Phase) -> Void)?
@@ -128,6 +131,10 @@ final class ReminderFocusTestWindow: IslandWindow {
             }
             if CommandLine.arguments.contains("--paging-performance-only") {
                 await measurePagingPerformance(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--marquee-only") {
+                await verifyMarqueeLifecycle()
                 exit(0)
             }
             if CommandLine.arguments.contains("--personal-paging-only") {
@@ -1573,13 +1580,30 @@ final class ReminderFocusTestWindow: IslandWindow {
             IslandArtworkRenderProbe.selectPage?(page)
             try? await Task.sleep(for: .seconds(0.4))
             require(capture() == nil, "Cover remained on a non-music page")
+            // Measure the rendered page without PNG capture/pixel scanning
+            // blocking subsequent main-thread frames. Keep the original budget.
+            let timingBegan = Date()
+            IslandArtworkRenderProbe.selectPage?(.music)
+            repeat {
+                try? await Task.sleep(for: .seconds(0.016))
+                host.layoutSubtreeIfNeeded()
+            } while abs(IslandArtworkRenderProbe.renderedPagePosition) >= 0.01 && Date().timeIntervalSince(timingBegan) < 0.5
+            let pageSettled = IslandArtworkRenderProbe.renderedPagePositionTime - timingBegan.timeIntervalSinceReferenceDate
+            require(abs(IslandArtworkRenderProbe.renderedPagePosition) < 0.01 && pageSettled >= 0 && pageSettled < 0.24,
+                    "The existing page transition was slowed down: \(pageSettled)")
+            // Replay the same transition for independent pixel/continuity checks.
+            IslandArtworkRenderProbe.selectPage?(page)
+            try? await Task.sleep(for: .seconds(0.4))
+            let began = Date()
             IslandArtworkRenderProbe.selectPage?(.music)
             var samples: [(TimeInterval, CGFloat, CGFloat?)] = []
-            let began = Date()
             for index in 0..<35 {
                 try? await Task.sleep(for: .seconds(0.016))
                 let edge = capture(index % 4 == 0 ? "music-entry-\(page)-\(index)" : nil)
-                samples.append((Date().timeIntervalSince(began), IslandArtworkRenderProbe.renderedPagePosition, edge))
+                // Use the rendered position's delivery time. PNG encoding and
+                // scanning every pixel after that update are test overhead.
+                samples.append((IslandArtworkRenderProbe.renderedPagePositionTime - began.timeIntervalSinceReferenceDate,
+                                IslandArtworkRenderProbe.renderedPagePosition, edge))
             }
             let trailing = samples.filter { abs($0.1) < 0.01 && ($0.2 ?? -10000) < finalRight - 3 }
             let visible = samples.compactMap(\.2)
@@ -1587,8 +1611,6 @@ final class ReminderFocusTestWindow: IslandWindow {
             require(Set(visible.map { Int($0) }).count >= 5 && abs(visible.last! - finalRight) < 2,
                     "Cover did not move continuously from the left and settle into its slot: \(samples)")
             require(zip(visible, visible.dropFirst()).allSatisfy { $1 >= $0 - 1.5 }, "Cover overshot or moved backward")
-            let pageSettled = samples.first { abs($0.1) < 0.01 }!.0
-            require(pageSettled < 0.24, "The existing page transition was slowed down: \(pageSettled)")
         }
         // A sub-threshold drag still follows the finger and returns to its page.
         IslandArtworkRenderProbe.selectPage?(.reminders)
@@ -2381,6 +2403,60 @@ final class ReminderFocusTestWindow: IslandWindow {
         print("PASS: real timer runtime replacement/pause/resume/persistent completion/acknowledgement/disable, native picker and timer page snapshots (isolated test domain)")
     }
 
+    @MainActor final class MarqueeState: ObservableObject {
+        @Published var active = true
+        @Published var reduced = false
+        @Published var text = "A long scrolling song title must stop moving when its music card is hidden"
+    }
+
+    private struct MarqueeHarness: View {
+        @ObservedObject var state: MarqueeState
+        var body: some View {
+            MarqueeText($state.text, textColor: .white, minDuration: 0, frameWidth: 160, active: state.active)
+                .id(state.reduced)
+                .frame(width: 160, height: 40).background(.black)
+        }
+    }
+
+    @MainActor static func verifyMarqueeLifecycle() async {
+        let previousMotion = IslandArtworkRenderProbe.reduceMotion
+        defer { IslandArtworkRenderProbe.reduceMotion = previousMotion }
+        let state = MarqueeState()
+        let host = NSHostingView(rootView: MarqueeHarness(state: state))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 160, height: 40),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host; window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func pixels() -> Data {
+            host.layoutSubtreeIfNeeded()
+            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return Data(bytes: rep.bitmapData!, count: rep.bytesPerRow * rep.pixelsHigh)
+        }
+        func changes() async -> Bool {
+            try? await Task.sleep(for: .milliseconds(150))
+            let first = pixels()
+            try? await Task.sleep(for: .milliseconds(300))
+            return first != pixels()
+        }
+        require(await changes(), "Visible long title failed to scroll")
+        state.active = false
+        require(!(await changes()), "Hidden title kept scrolling")
+        state.text = "Another long title arriving while the music card is hidden must remain still"
+        require(!(await changes()), "Hidden metadata update restarted scrolling")
+        state.active = true
+        require(await changes(), "Returning to music failed to restart scrolling")
+        IslandArtworkRenderProbe.reduceMotion = true
+        state.reduced = true
+        require(!(await changes()), "Reduce Motion left repeating text animation running")
+        IslandArtworkRenderProbe.reduceMotion = false
+        state.reduced = false
+        state.text = "Short"
+        require(!(await changes()), "Short title unnecessarily scrolled")
+        print("PASS: real marquee pixels scroll only for visible overflowing text, hidden metadata stays still, returning resumes, Reduce Motion and short text stop")
+    }
+
     @MainActor static func measurePagingPerformance(output: URL) async {
         let activities = ActivityCoordinator.shared
         let reminders = RemindersActivityManager.shared
@@ -2393,17 +2469,32 @@ final class ReminderFocusTestWindow: IslandWindow {
             .flatMap { Int($0.split(separator: "=").last!) } ?? 24
         let label = CommandLine.arguments.first { $0.hasPrefix("--performance-label=") }
             .map { String($0.split(separator: "=").last!) } ?? "current"
+        let rounds = CommandLine.arguments.first { $0.hasPrefix("--performance-rounds=") }
+            .flatMap { Int($0.split(separator: "=").last!) }.map { max(1, $0) } ?? 2
+        let playing = CommandLine.arguments.contains("--performance-playing")
+        if playing {
+            MusicManager.shared.songTitle = "Long music title exercising the production scrolling text during continuous paging"
+            MusicManager.shared.artistName = "Long artist name exercising a second independently scrolling label"
+            activities.setMusicSpectrumSource(bundleIdentifier: "fixture.player", playing: true, trackIdentifier: UUID())
+        }
         activities.setReminders((0..<count).map {
             ReminderTask(id: "performance-\($0)", title: "Task \($0): stable title for repeatable paging", dueDate: nil,
                          creationDate: Date(timeIntervalSince1970: Double(10000 + $0)))
         })
         let vm = IslandViewModel(screenUUID: NSScreen.screens[0].displayUUID)
-        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: vm.windowSize),
+        let onscreen = CommandLine.arguments.contains("--performance-onscreen")
+        let origin = onscreen ? CGPoint(x: NSScreen.screens[0].frame.midX - vm.windowSize.width / 2,
+                                       y: NSScreen.screens[0].frame.midY) : CGPoint(x: -10000, y: -10000)
+        let window = NSWindow(contentRect: NSRect(origin: origin, size: vm.windowSize),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: ContentView().environmentObject(vm))
         window.contentView = host
-        window.orderBack(nil)
+        // This benchmark supplies phased input itself. Desktop pointer movement
+        // must not inject a second gesture or schedule a hover collapse.
+        window.ignoresMouseEvents = onscreen
+        if onscreen { window.level = .floating; window.orderFrontRegardless() }
+        else { window.orderBack(nil) }
         defer { window.orderOut(nil); window.contentView = nil; vm.destroy(); activities.setReminders([]) }
         vm.open()
         try? await Task.sleep(for: .seconds(0.8))
@@ -2414,6 +2505,8 @@ final class ReminderFocusTestWindow: IslandWindow {
         let nativeViews = viewCount(host)
         IslandArtworkRenderProbe.reminderPageBodies = 0
         IslandArtworkRenderProbe.reminderRowBodies = 0
+        IslandArtworkRenderProbe.musicPageBodies = 0
+        IslandArtworkRenderProbe.timerPageBodies = 0
         func cpuSeconds() -> Double {
             var usage = rusage()
             getrusage(RUSAGE_SELF, &usage)
@@ -2424,7 +2517,14 @@ final class ReminderFocusTestWindow: IslandWindow {
         let cpuStart = cpuSeconds()
         var previousTick = started
         var intervals: [Double] = []
+        var spectrumFrames = 0
         func tick() async {
+            if onscreen { IslandArtworkRenderProbe.hover?(true) }
+            if playing, intervals.count % 2 == 0, let lease = activities.spectrumRequest {
+                let phase = Double(intervals.count) * 0.13
+                activities.receiveSpectrum((0..<6).map { 0.56 + 0.44 * sin(phase + Double($0)) }, for: lease)
+                spectrumFrames += 1
+            }
             try? await Task.sleep(for: .seconds(0.016))
             host.layoutSubtreeIfNeeded()
             let stamp = ProcessInfo.processInfo.systemUptime
@@ -2432,7 +2532,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             previousTick = stamp
         }
         print("PERFORMANCE READY pid=\(ProcessInfo.processInfo.processIdentifier) reminders=\(count)")
-        for _ in 0..<2 {
+        for _ in 0..<rounds {
             for (target, direction): (IslandPage, Double) in [(.reminders, 1), (.timer, 1), (.reminders, -1), (.music, -1)] {
                 IslandArtworkRenderProbe.horizontalGesture?(0, 0.016, .began)
                 for _ in 0..<32 {
@@ -2445,10 +2545,13 @@ final class ReminderFocusTestWindow: IslandWindow {
             }
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - started
+        require(!playing || spectrumFrames > 0, "Playing benchmark did not deliver any spectrum frames")
         let cpu = cpuSeconds() - cpuStart
         let sorted = intervals.sorted()
         let result: [String: Any] = [
-            "label": label, "reminders": count, "swipes": 8, "ticks": intervals.count,
+            "label": label, "reminders": count, "swipes": rounds * 4, "ticks": intervals.count,
+            "playing": playing, "onscreen": onscreen,
+            "spectrum_frames": spectrumFrames,
             "wall_seconds": elapsed, "cpu_seconds": cpu, "cpu_percent": cpu / elapsed * 100,
             "tick_p50_ms": sorted[sorted.count / 2] * 1000,
             "tick_p95_ms": sorted[Int(Double(sorted.count - 1) * 0.95)] * 1000,
@@ -2456,7 +2559,10 @@ final class ReminderFocusTestWindow: IslandWindow {
             "native_views": nativeViews,
             "reminder_page_bodies": IslandArtworkRenderProbe.reminderPageBodies,
             "reminder_row_bodies": IslandArtworkRenderProbe.reminderRowBodies,
-            "scope": "isolated production ContentView, 8 phased swipes at 16ms cadence, offscreen AppKit layout; tick intervals are event-loop cadence, not hardware FPS"
+            "music_page_bodies": IslandArtworkRenderProbe.musicPageBodies,
+            "timer_page_bodies": IslandArtworkRenderProbe.timerPageBodies,
+            "native_views_after": viewCount(host),
+            "scope": "isolated production ContentView, phased swipes at 16ms cadence, optional synthetic audio frames through the real coordinator, \(onscreen ? "onscreen" : "offscreen") AppKit layout; tick intervals are event-loop cadence, not hardware FPS"
         ]
         let data = try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
         try! data.write(to: output.appendingPathComponent("paging-performance-\(label)-\(count).json"))
@@ -2530,10 +2636,12 @@ final class ReminderFocusTestWindow: IslandWindow {
                 let xs = Int((left + 8) * scale)..<Int((left + 100) * scale)
                 let ys = Int(60 * scale)..<Int(130 * scale)
                 let first = xs.first { x in ys.contains { isOrange(x, $0) } }!
-                digitMask = (first..<first + Int(10 * scale)).flatMap { x in
+                // Include the leading digit's body at 1x too: its thin left
+                // edge alone can contain fewer than 30 orange pixels.
+                digitMask = (first..<first + Int(20 * scale)).flatMap { x in
                     ys.compactMap { y in isOrange(x, y) ? CGPoint(x: CGFloat(x) - timerLeft * scale, y: CGFloat(y)) : nil }
                 }
-                require(digitMask.count > 30, "Missing stable timer digit reference")
+                require(digitMask.count > 30, "Missing stable timer digit reference: \(digitMask.count) pixels at \(scale)x")
             }
             var expectedDigitPixels = 0, matchedDigitPixels = 0
             if checkDigitPosition {

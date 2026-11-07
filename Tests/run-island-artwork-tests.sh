@@ -107,6 +107,16 @@ for type_name, counter in [('ReminderTaskRow', 'reminderRowBodies'), ('Reminders
     s = s[:b] + '\n        let _ = { IslandArtworkRenderProbe.' + counter + ' += 1 }()' + s[b:]
 p.write_text(s)
 # Observe the two persistent creation controls, including their rendered intermediate geometry.
+for filename, type_name, counter in [
+    ('NotchHomeView.swift', 'NotchHomeView', 'musicPageBodies'),
+    ('ActivityPagesView.swift', 'TimerActivityPage', 'timerPageBodies')
+]:
+    p = check / 'AirIsland/components/Notch' / filename
+    s = p.read_text()
+    a = s.index('struct ' + type_name + ':')
+    b = s.index('    var body: some View {', a) + len('    var body: some View {')
+    s = s[:b] + '\n        let _ = { IslandArtworkRenderProbe.' + counter + ' += 1 }()' + s[b:]
+    p.write_text(s)
 p = check / 'AirIsland/components/Notch/ActivityPagesView.swift'
 s = p.read_text()
 a = s.index('private struct ReminderCreationControls:')
@@ -250,6 +260,7 @@ s = s.replace(token, '''.background {
                     }
                 .onChange(of: pagePosition, initial: true) { _, position in
                     IslandArtworkRenderProbe.renderedPagePosition = position
+                    IslandArtworkRenderProbe.renderedPagePositionTime = Date.timeIntervalSinceReferenceDate
                 }
                 }
             }

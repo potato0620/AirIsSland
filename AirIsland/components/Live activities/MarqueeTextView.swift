@@ -30,12 +30,13 @@ struct MarqueeText: View {
     let backgroundColor: Color
     let minDuration: Double
     let frameWidth: CGFloat
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     @State private var animate = false
     @State private var textSize: CGSize = .zero
-    @State private var offset: CGFloat = 0
     
-    init(_ text: Binding<String>, font: Font = .body, nsFont: NSFont.TextStyle = .body, textColor: Color = .primary, backgroundColor: Color = .clear, minDuration: Double = 3.0, frameWidth: CGFloat = 200) {
+    init(_ text: Binding<String>, font: Font = .body, nsFont: NSFont.TextStyle = .body, textColor: Color = .primary, backgroundColor: Color = .clear, minDuration: Double = 3.0, frameWidth: CGFloat = 200, active: Bool = true) {
         _text = text
         self.font = font
         self.nsFont = nsFont
@@ -43,6 +44,7 @@ struct MarqueeText: View {
         self.backgroundColor = backgroundColor
         self.minDuration = minDuration
         self.frameWidth = frameWidth
+        self.active = active
     }
     
     private var needsScrolling: Bool {
@@ -61,7 +63,7 @@ struct MarqueeText: View {
                 .font(font)
                 .foregroundColor(textColor)
                 .fixedSize(horizontal: true, vertical: false)
-                .offset(x: self.animate ? offset : 0)
+                .offset(x: animate ? -(textSize.width + 10) : 0)
                 .animation(
                     self.animate ?
                         .linear(duration: Double(textSize.width / 30))
@@ -73,21 +75,29 @@ struct MarqueeText: View {
                 .modifier(MeasureSizeModifier())
                 .onPreferenceChange(SizePreferenceKey.self) { size in
                     self.textSize = CGSize(width: size.width / 2, height: NSFont.preferredFont(forTextStyle: nsFont).pointSize)
-                    self.animate = false
-                    self.offset = 0
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01){
-                        if needsScrolling {
-                            self.animate = true
-                            self.offset = -(textSize.width + 10)
-                            
-                        }
-                    }
                 }
+                .task(id: ScrollConfiguration(text: text, width: textSize.width,
+                                              frameWidth: frameWidth, enabled: active && !reduceMotion)) {
+                    animate = false
+                    guard active, !reduceMotion, needsScrolling else { return }
+                    // A cancelled/hidden page cannot restart a repeating animation.
+                    do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+                    guard !Task.isCancelled else { return }
+                    animate = true
+                }
+                .onDisappear { animate = false }
             }
             .frame(width: frameWidth, alignment: .leading)
             .clipped()
         }
         .frame(height: textSize.height * 1.3)
         
+    }
+
+    private struct ScrollConfiguration: Equatable {
+        let text: String
+        let width: CGFloat
+        let frameWidth: CGFloat
+        let enabled: Bool
     }
 }

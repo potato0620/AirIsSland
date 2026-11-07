@@ -94,10 +94,15 @@ struct TimerFinishedIcon: View {
     }
 }
 
-struct TimerActivityPage: View {
+struct TimerActivityPage: View, Equatable {
     var active = true
     /// Supplied by the island's rendered geometry; standalone pages have no collapse.
     var expansion: CGFloat? = nil
+    // Paging translation does not change this page's inputs. Observed source,
+    // environment and local interaction state still invalidate it independently.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.active == rhs.active && lhs.expansion == rhs.expansion
+    }
     @ObservedObject private var activities = ActivityCoordinator.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedDuration: TimeInterval = 1500

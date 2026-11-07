@@ -298,12 +298,13 @@ struct ContentView: View {
                     ForEach(enabledPages) { page in
                         expandedPage(page, width: width, expansion: expansion) {
                             switch page {
-                            case .music: NotchHomeView(active: pager.selection == .music)
+                            case .music: NotchHomeView(active: pager.selection == .music).equatable()
                             case .reminders:
                                 RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
                                     .equatable()
                             case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer,
                                                           expansion: expansion)
+                                    .equatable()
                             }
                         }
                     }

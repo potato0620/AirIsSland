@@ -33,6 +33,8 @@ Air 意味着轻量。没有活动就安静收起，不能塞入静态日历、�
 
 ## 验证与交付
 
+本机开发安装须使用固定本地签名：首次执行 `python3 Configuration/signing/local_signing.py init`，随后通过 `bash Configuration/signing/build-local.sh` 完整构建并签名。不得把中间 ad-hoc 产物直接覆盖安装版，也不得因证书/私钥丢失而自动重建身份。该身份仅用于本机开发验证，不作为 GitHub 发行签名；公开发行应迁移到 Developer ID，尚无账号时可沿用现有 ad-hoc 渠道，但必须如实说明未经公证、更新可能重新授权，不能把本机身份连续性宣传为公开包的权限继承。详见 `docs/UPDATES.md`。
+
 相关测试通过后完成完整 Release 构建。修改活动调度时至少运行：
 
 ```sh

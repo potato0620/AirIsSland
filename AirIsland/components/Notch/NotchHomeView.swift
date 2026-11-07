@@ -22,7 +22,7 @@ struct MusicPlayerView: View {
             Color.clear
                 .frame(width: side, height: side)
                 .padding(MusicPlayerImageSizes.padding)
-            MusicControlsView(active: active).drawingGroup().compositingGroup()
+            MusicControlsView(active: active)
         }
     }
 }
@@ -298,14 +298,14 @@ struct MusicControlsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 MarqueeText(
                     $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
-                    frameWidth: max(0, width - 32))
+                    frameWidth: max(0, width - 32), active: active)
                 MarqueeText(
                     $musicManager.artistName,
                     font: .headline,
                     nsFont: .headline,
                     textColor: Color(nsColor: musicManager.avgColor)
                         .ensureMinimumBrightness(factor: 0.6),
-                    frameWidth: max(0, width - 32)
+                    frameWidth: max(0, width - 32), active: active
                 )
                 .fontWeight(.medium)
             }
@@ -356,8 +356,9 @@ struct MusicControlsView: View {
 
 // MARK: - Main View
 
-struct NotchHomeView: View {
+struct NotchHomeView: View, Equatable {
     var active = true
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.active == rhs.active }
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
 
