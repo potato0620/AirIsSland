@@ -17,7 +17,7 @@ class SettingsWindowController: NSWindowController {
     private init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 650),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -37,12 +37,13 @@ class SettingsWindowController: NSWindowController {
         
         window.minSize = NSSize(width: 760, height: 600)
         window.title = String(localized: "AirIsland Settings")
-        window.titlebarAppearsTransparent = false
+        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.toolbarStyle = .unified
-        // Navigation is a native titlebar accessory aligned with the detail column.
-        // Content stays inside contentLayoutRect instead of drawing under the toolbar.
+        window.toolbarStyle = .unifiedCompact
+        // Native sidebar behavior carries its material through the titlebar. The
+        // tracking separator gives the detail toolbar its own background section.
         let toolbar = NSToolbar(identifier: "AirIslandSettingsTitlebar")
+        toolbar.delegate = self
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
         window.isMovableByWindowBackground = true
@@ -58,13 +59,41 @@ class SettingsWindowController: NSWindowController {
         window.isRestorable = true
         window.identifier = NSUserInterfaceItemIdentifier("AirIslandSettingsWindow")
         
-        // Create the SwiftUI content
-        let settingsView = SettingsView(navigation: navigation)
-        let hostingView = NSHostingView(rootView: settingsView)
-        window.contentView = hostingView
+        let split = NSSplitViewController()
+        split.splitView.isVertical = true
+        split.splitView.dividerStyle = .thin
+        let sidebar = NSSplitViewItem(sidebarWithViewController:
+            NSHostingController(rootView: SettingsSidebar(navigation: navigation)))
+        sidebar.minimumThickness = SettingsView.sidebarWidth
+        sidebar.maximumThickness = SettingsView.sidebarWidth
+        sidebar.canCollapse = false
+        sidebar.allowsFullHeightLayout = true
+        sidebar.titlebarSeparatorStyle = .none
+        split.addSplitViewItem(sidebar)
+        // A Form's scroll view can extend behind a full-size titlebar even when
+        // its initial content respects safe-area insets. Constrain the hosting
+        // view itself so scrolling can never paint behind navigation.
+        let detailController = NSViewController()
+        detailController.view = NSView()
+        let content = NSHostingController(rootView: SettingsView(navigation: navigation))
+        detailController.addChild(content)
+        detailController.view.addSubview(content.view)
+        content.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            content.view.topAnchor.constraint(equalTo: detailController.view.safeAreaLayoutGuide.topAnchor),
+            content.view.bottomAnchor.constraint(equalTo: detailController.view.bottomAnchor),
+            content.view.leadingAnchor.constraint(equalTo: detailController.view.leadingAnchor),
+            content.view.trailingAnchor.constraint(equalTo: detailController.view.trailingAnchor)
+        ])
+        let detail = NSSplitViewItem(viewController: detailController)
+        detail.titlebarSeparatorStyle = .none
+        split.addSplitViewItem(detail)
+        window.contentViewController = split
 
         let header = NSHostingView(rootView: SettingsNavigationHeader(navigation: navigation))
         header.sizingOptions = []
+        // AppKit already positions the navigation inside the titlebar.
+        header.safeAreaRegions = []
         header.frame = NSRect(x: 0, y: 0,
                               width: window.frame.width - SettingsView.sidebarWidth,
                               height: SettingsView.headerHeight)
@@ -117,12 +146,23 @@ class SettingsWindowController: NSWindowController {
     }
 }
 
+extension SettingsWindowController: NSToolbarDelegate {
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.sidebarTrackingSeparator, .flexibleSpace]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+}
+
 extension SettingsWindowController: NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         guard let window, let navigationHeader else { return }
         navigationHeader.setFrameSize(NSSize(
             width: max(0, window.frame.width - SettingsView.sidebarWidth),
-            height: navigationHeader.frame.height))
+            height: SettingsView.headerHeight))
     }
 
     func windowWillClose(_ notification: Notification) {

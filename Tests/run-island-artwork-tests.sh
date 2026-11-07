@@ -257,12 +257,24 @@ s = s.replace(token, '''.background {
 p.write_text(s)
 p = check / 'AirIsland/components/Settings/SettingsView.swift'
 s = p.read_text()
-token = '.font(.title2.bold())'
+token = '.font(.system(size: 15, weight: .semibold))'
 assert token in s
 s = s.replace(token, token + '''.background {
             GeometryReader { proxy in
-                Color.clear.onChange(of: proxy.frame(in: .global), initial: true) { _, frame in
+                Color.clear.onChange(of: proxy.frame(in: .named("settingsHeader")), initial: true) { _, frame in
                     IslandArtworkRenderProbe.settingsTitleFrame = frame
+                }
+            }
+        }''')
+token = '.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)'
+assert token in s
+s = s.replace(token, token + '.coordinateSpace(name: "settingsHeader")')
+token = '.accessibilityLabel(Text("Back"))'
+assert token in s
+s = s.replace(token, token + '''.background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.frame(in: .named("settingsHeader")), initial: true) { _, frame in
+                    IslandArtworkRenderProbe.settingsBackFrame = frame
                 }
             }
         }''')

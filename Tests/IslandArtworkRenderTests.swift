@@ -52,6 +52,7 @@ enum IslandArtworkRenderProbe {
     static var reminderWrites: [String] = []
     static var reminderWriteSucceeds = true
     static var settingsTitleFrame = CGRect.zero
+    static var settingsBackFrame = CGRect.zero
 }
 
 private struct ActionButtonSizes: PreferenceKey {
@@ -1023,23 +1024,49 @@ final class ReminderFocusTestWindow: IslandWindow {
                 window.setFrame(NSRect(origin: CGPoint(x: -10000, y: -10000), size: size), display: true)
                 window.orderBack(nil)
                 try? await Task.sleep(for: .seconds(0.2))
-                for (page, activity) in [("general", nil), ("activities", ActivitySettingsPage.music),
-                                         ("activities", nil), ("presentation", nil), ("about", nil)] {
+                let pages: [(String, ActivitySettingsPage?)] = [
+                    ("general", nil), ("activities", .music), ("activities", .reminders),
+                    ("activities", .timer), ("activities", .feedback),
+                    ("activities", nil), ("presentation", nil), ("about", nil)
+                ]
+                for (page, activity) in pages {
                     controller.navigation.selectedPage = SettingsPage(rawValue: page)
                     try? await Task.sleep(for: .seconds(0.05))
                     controller.navigation.activityPage = activity
                     try? await Task.sleep(for: .seconds(0.1))
                     let host = window.contentView!
                     host.layoutSubtreeIfNeeded()
+                    guard let split = window.contentViewController as? NSSplitViewController,
+                          let sidebar = split.splitViewItems.first?.viewController.view,
+                          let detail = split.splitViewItems.last?.viewController.view else {
+                        fatalError("Settings must use native sidebar and detail columns")
+                    }
+                    let sidebarFrame = sidebar.convert(sidebar.bounds, to: nil)
+                    let detailFrame = detail.convert(detail.safeAreaRect, to: nil)
+                    require(abs(sidebarFrame.minX) < 0.5 &&
+                            abs(sidebarFrame.width - SettingsView.sidebarWidth) < 0.5 &&
+                            sidebarFrame.maxY > window.contentLayoutRect.maxY + 20,
+                            "Sidebar does not extend through its titlebar: \(sidebarFrame)")
+                    require(detailFrame.minX >= sidebarFrame.maxX &&
+                            detailFrame.maxY <= window.contentLayoutRect.maxY + 0.5,
+                            "Detail column escaped its native content area: \(detailFrame)")
                     let title = IslandArtworkRenderProbe.settingsTitleFrame
                     let header = window.titlebarAccessoryViewControllers.first!.view
                     let titleInWindow = header.convert(NSRect(
-                        x: title.minX, y: header.bounds.height - title.maxY,
+                        x: title.minX, y: header.isFlipped ? title.minY : header.bounds.height - title.maxY,
                         width: title.width, height: title.height), to: nil)
                     require(title.width > 20 && titleInWindow.minX > SettingsView.sidebarWidth,
                             "Settings title disappeared or crossed into the sidebar: \(titleInWindow)")
                     require(!header.isHiddenOrHasHiddenAncestor && titleInWindow.minY >= window.contentLayoutRect.maxY,
                             "Settings title is outside native titlebar layout: title=\(titleInWindow), content=\(window.contentLayoutRect)")
+                    let back = IslandArtworkRenderProbe.settingsBackFrame
+                    let backFrame = header.convert(NSRect(x: back.minX,
+                        y: header.isFlipped ? back.minY : header.bounds.height - back.maxY,
+                        width: back.width, height: back.height), to: nil)
+                    require(abs(backFrame.midY - titleInWindow.midY) < 1,
+                            "Back button and title are not vertically aligned: \(backFrame), \(titleInWindow)")
+                    require(backFrame.width <= 36 && backFrame.height <= 28,
+                            "Back button exceeds compact navigation size: \(backFrame)")
                     func scrollViews(_ view: NSView) -> [NSScrollView] {
                         (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
                     }
@@ -1049,7 +1076,8 @@ final class ReminderFocusTestWindow: IslandWindow {
                         require(viewport.maxY <= window.contentLayoutRect.maxY + 0.5 && viewport.maxY <= titleInWindow.minY,
                                 "Detail scrolling viewport overlaps the navigation title: \(viewport), \(titleInWindow)")
                         if let document = scroll.documentView, document.bounds.height > scroll.contentView.bounds.height {
-                            scroll.contentView.scroll(to: NSPoint(x: 0, y: 30))
+                            scroll.contentView.scroll(to: NSPoint(x: 0,
+                                y: document.bounds.height - scroll.contentView.bounds.height))
                             scroll.reflectScrolledClipView(scroll.contentView)
                             let scrolled = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
                             require(scrolled.maxY <= titleInWindow.minY, "Scrolling entered the titlebar")
@@ -1063,7 +1091,7 @@ final class ReminderFocusTestWindow: IslandWindow {
                 }
             }
         }
-        print("PASS: settings title is in the native titlebar above detail content in light/dark, both sizes, category and nested navigation")
+        print("PASS: full-height native sidebar, separate detail titlebar and scrolling content in light/dark, both sizes, all settings pages")
     }
 
     @MainActor static func verifySpectrum(output: URL) async {
@@ -1132,7 +1160,11 @@ final class ReminderFocusTestWindow: IslandWindow {
         }
         require(bands.count == 6 && Set(bands).count >= 4, "Rendered spectrum did not contain six independently driven bars: \(bands)")
         requireUniformSpectrumSpans(compactSpans, context: "compact spectrum")
-        require(abs(CGFloat(bands.max()!) / scale - (vm.effectiveClosedNotchHeight - 12)) < 2,
+        let height = vm.effectiveClosedNotchHeight
+        let rightInset = right - CGFloat(compactSpans.last!.upperBound + 1) / scale
+        require(abs(rightInset - MusicPlayerImageSizes.compactOuterInset(height: height)) <= 1,
+                "Compact spectrum right inset does not match the cover: \(rightInset)")
+        require(abs(CGFloat(bands.max()!) / scale - MusicPlayerImageSizes.compactSide(height: height)) < 2,
                 "Compact spectrum ceiling is shorter than its cover")
 
         let originalArtist = MusicManager.shared.artistName
@@ -1603,11 +1635,14 @@ final class ReminderFocusTestWindow: IslandWindow {
                 let surface = IslandArtworkRenderProbe.surfaceSize
                 let p = min(1, max(0, (surface.height - vm.effectiveClosedNotchHeight)
                     / (vm.expandedNotchSize.height - vm.effectiveClosedNotchHeight)))
-                let coverSide = max(0, vm.effectiveClosedNotchHeight - 12)
-                    + (side - max(0, vm.effectiveClosedNotchHeight - 12)) * p
+                let height = vm.effectiveClosedNotchHeight
+                let compactSide = MusicPlayerImageSizes.compactSide(height: height)
+                let compactInset = MusicPlayerImageSizes.compactOuterInset(height: height)
+                let compactTop = MusicPlayerImageSizes.compactPadding(height: height)
+                let coverSide = compactSide + (side - compactSide) * p
                 let expected = (host.bounds.width - surface.width) / 2
-                    + cornerRadiusInsets.closed.bottom + (inset - cornerRadiusInsets.closed.bottom) * p + coverSide
-                let row = Int((6 + (top - 6) * p + coverSide / 2) * scale)
+                    + compactInset + (inset - compactInset) * p + coverSide
+                let row = Int((compactTop + (top - compactTop) * p + coverSide / 2) * scale)
                 var right = -1
                 for x in 0..<rep.pixelsWide / 2 {
                     let c = rep.colorAt(x: x, y: row)!.usingColorSpace(.deviceRGB)!
@@ -1938,7 +1973,7 @@ final class ReminderFocusTestWindow: IslandWindow {
         Defaults[.lightingEffect] = false
         source.cancel()
         defer { source.cancel(); source.stop() }
-        for (height, width): (CGFloat, CGFloat) in [(24, 120), (24, 185), (24, 320), (32, 120), (32, 185), (32, 320)] {
+        for (height, width): (CGFloat, CGFloat) in [(15, 185), (24, 120), (24, 185), (24, 320), (32, 120), (32, 185), (32, 320)] {
             let screen = NSScreen.screens.first { $0.safeAreaInsets.top == 0 } ?? NSScreen.screens[0]
             let vm = IslandViewModel(screenUUID: screen.displayUUID)
             vm.hideOnClosed = false
@@ -1953,6 +1988,11 @@ final class ReminderFocusTestWindow: IslandWindow {
                 .environment(\.locale, Locale(identifier: "zh-Hans")))
             window.contentView = host
             window.orderBack(nil)
+            defer {
+                window.orderOut(nil)
+                window.contentView = nil
+                vm.destroy()
+            }
             func capture(_ name: String) -> CGFloat {
                 host.layoutSubtreeIfNeeded()
                 let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
@@ -1962,11 +2002,16 @@ final class ReminderFocusTestWindow: IslandWindow {
                 let surface = IslandArtworkRenderProbe.surfaceSize
                 let surfaceLeft = (host.bounds.width - surface.width) / 2
                 var first = rep.pixelsWide, last = -1
+                var coverTop = rep.pixelsHigh, coverBottom = -1
                 for y in 0..<Int(height * scale) {
                     for x in Int(ceil(surfaceLeft * scale))..<Int(floor((surfaceLeft + surface.width) * scale)) {
                         let pixel = rep.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
                         if pixel.alphaComponent > 0.5 && max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) > 0.15 {
                             first = min(first, x); last = max(last, x)
+                            if x < rep.pixelsWide / 2 {
+                                coverTop = min(coverTop, y)
+                                coverBottom = max(coverBottom, y)
+                            }
                             let point = (CGFloat(x) + 0.5) / scale
                             require(abs(point - host.bounds.midX) >= vm.closedNotchSize.width / 2,
                                     "Compact content entered the physical notch safe area: \(name)")
@@ -1978,9 +2023,24 @@ final class ReminderFocusTestWindow: IslandWindow {
                 let trailing = surfaceLeft + surface.width - CGFloat(last + 1) / scale
                 require(abs(leading - trailing) <= 3,
                         "Unequal compact outer margins in \(name), height \(height): left \(leading), right \(trailing)")
+                if name == "music" {
+                    let expectedPadding: CGFloat = height == 15 ? 2.8125 : (height == 24 ? 4.5 : 6)
+                    let expectedInset = (height == 15 ? 4.5 : 6) + expectedPadding
+                    require(abs(leading - expectedInset) <= 1 && abs(trailing - expectedInset) <= 1,
+                            "Music horizontal margins do not fit the height: left \(leading), right \(trailing)")
+                    let top = CGFloat(coverTop) / scale
+                    let bottom = height - CGFloat(coverBottom + 1) / scale
+                    require(abs(top - expectedPadding) <= 1 && abs(bottom - expectedPadding) <= 1,
+                            "Cover should grow with balanced vertical margins: top \(top), bottom \(bottom)")
+                }
                 require(surface.width <= vm.expandedNotchSize.width + 1, "Compact content exceeded its window budget")
                 print("PASS: compact \(name), height \(height), outer margins \(leading)/\(trailing), width \(surface.width)")
                 return surface.width
+            }
+            if height < 24 {
+                try? await Task.sleep(for: .seconds(0.7))
+                _ = capture("music")
+                continue
             }
             source.start(duration: 1500)
             try? await Task.sleep(for: .seconds(0.7))
@@ -1998,9 +2058,6 @@ final class ReminderFocusTestWindow: IslandWindow {
                 _ = capture(kind.rawValue)
                 activities.end(kind)
             }
-            window.orderOut(nil)
-            window.contentView = nil
-            vm.destroy()
         }
     }
 

@@ -85,14 +85,17 @@ struct ContentView: View {
             return .expanded
         }
         guard vm.notchState == .closed || compactContentVisible else { return .hidden }
-        return !vm.hideOnClosed && vm.effectiveClosedNotchHeight > 12 && presentation.showsMusicSpectrum ? .compact : .hidden
+        let spectrumHeight = MusicPlayerImageSizes.compactSide(height: vm.effectiveClosedNotchHeight)
+        return !vm.hideOnClosed && spectrumHeight >= 1 && presentation.showsMusicSpectrum ? .compact : .hidden
     }
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 let mainLayout = CompactNotchLayout()
-                    .padding(.horizontal, cornerRadiusInsets.closed.bottom)
+                    .padding(.horizontal, presentation.showsMusic
+                        ? MusicPlayerImageSizes.compactOuterInset(height: vm.effectiveClosedNotchHeight)
+                        : cornerRadiusInsets.closed.bottom)
                     .background {
                         GeometryReader { proxy in
                             Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
@@ -123,6 +126,7 @@ struct ContentView: View {
                         compactVisibilityChanged: { compactContentVisible = $0 },
                         outsideEditingClick: cancelEditingAndClose,
                         scalesCorners: Defaults[.cornerRadiusScaling],
+                        usesCompactMusicSizing: presentation.showsMusic,
                         isArtworkPaused: !musicManager.isPlaybackActive, showsArtwork: showsArtwork
                     ))
                     .animation(islandAnimation, value: vm.notchState)
@@ -411,12 +415,12 @@ struct ContentView: View {
 
     @ViewBuilder
     func MusicLiveActivity() -> some View {
+        let height = vm.effectiveClosedNotchHeight
+        let coverSide = MusicPlayerImageSizes.compactSide(height: height)
+        let inset = MusicPlayerImageSizes.compactOuterInset(height: height)
         HStack {
             Color.clear
-                .frame(
-                    width: max(0, vm.effectiveClosedNotchHeight - 12),
-                    height: max(0, vm.effectiveClosedNotchHeight - 12)
-                )
+                .frame(width: coverSide, height: coverSide)
 
             Color.clear
                 .overlay(
@@ -442,23 +446,21 @@ struct ContentView: View {
                 )
                 .frame(
                     width: (presentation.showsMusicPeek)
-                        ? min(380, max(0, vm.expandedNotchSize.width - 2 * cornerRadiusInsets.closed.bottom - 2 * max(0, vm.effectiveClosedNotchHeight - 12) - 16))
+                        ? min(380, max(0, vm.expandedNotchSize.width - 2 * inset - 2 * coverSide - 16))
                         : vm.closedNotchSize.width
                             + -cornerRadiusInsets.closed.top
                 )
 
             if presentation.showsMusicSpectrum {
-                let spectrumHeight = max(0, vm.effectiveClosedNotchHeight - 12)
                 Rectangle()
                     .fill(Color(nsColor: musicManager.avgColor).gradient)
-                    .frame(width: 20, height: spectrumHeight)
+                    .frame(width: 20, height: coverSide)
                     .mask {
                         AudioSpectrumView(isPlaying: .constant(musicManager.isPlaying),
-                                          maximumHeight: spectrumHeight)
-                            .frame(width: 20, height: spectrumHeight)
+                                          maximumHeight: coverSide, alignsTrailing: true)
+                            .frame(width: 20, height: coverSide)
                     }
-                    .frame(width: max(20, vm.effectiveClosedNotchHeight - 12),
-                           height: max(0, vm.effectiveClosedNotchHeight - 12), alignment: .trailing)
+                    .frame(width: max(20, coverSide), height: coverSide, alignment: .trailing)
             }
         }
         .frame(
@@ -589,6 +591,7 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
     let compactVisibilityChanged: (Bool) -> Void
     let outsideEditingClick: () -> Void
     let scalesCorners: Bool
+    let usesCompactMusicSizing: Bool
     let isArtworkPaused: Bool
     let showsArtwork: Bool
 
@@ -605,8 +608,12 @@ private struct IslandExpansionSurface<ExpandedContent: View>: AnimatableModifier
 
     func body(content: Content) -> some View {
         let closedHeight = vm.effectiveClosedNotchHeight
-        let top = interpolate(cornerRadiusInsets.closed.top, scalesCorners ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top)
-        let bottom = interpolate(cornerRadiusInsets.closed.bottom, scalesCorners ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom)
+        let compactCornerScale = usesCompactMusicSizing
+            ? MusicPlayerImageSizes.compactCornerScale(height: closedSurfaceHeight) : 1
+        let top = interpolate(cornerRadiusInsets.closed.top * compactCornerScale,
+                              scalesCorners ? cornerRadiusInsets.opened.top : cornerRadiusInsets.closed.top)
+        let bottom = interpolate(cornerRadiusInsets.closed.bottom * compactCornerScale,
+                                 scalesCorners ? cornerRadiusInsets.opened.bottom : cornerRadiusInsets.closed.bottom)
         let compactVisible = keepsCompactVisible || expansion < 1
         content.environment(\.musicSpectrumVisible, compactVisible)
             .onChange(of: compactVisible, initial: true) { _, visible in compactVisibilityChanged(visible) }

@@ -48,8 +48,8 @@ struct TimerActivitySettings: View {
             } footer: {
                 Text("Turning off the timer cancels the current countdown.")
                     .settingsNoteStyle()
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -71,6 +71,7 @@ struct RemindersActivitySettings: View {
                             Text("Selected list unavailable").tag(listIdentifier)
                         }
                     }
+                    .tint(.primary)
                     if let error = source.errorMessage {
                         Text(error).settingsNoteStyle()
                     }
@@ -169,11 +170,10 @@ struct MusicActivitySettings: View {
             } footer: {
                 Text("Sneak Peek briefly expands the island to show the song title and artist.")
                     .settingsNoteStyle()
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .accentColor(.effectiveAccent)
     }
 
 }
@@ -187,7 +187,6 @@ struct SystemFeedbackSettings: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replace system HUD")
-                            .font(.headline)
                         Text("Replaces the standard macOS volume, display brightness, and keyboard brightness HUDs with a custom design.")
                             .settingsNoteStyle()
                     }
@@ -221,7 +220,6 @@ struct SystemFeedbackSettings: View {
             }
 
         }
-        .accentColor(.effectiveAccent)
         .task {
             accessibilityAuthorized = await XPCHelperClient.shared.isAccessibilityAuthorized()
         }

@@ -19,6 +19,38 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .about: return "info.circle"
         }
     }
+    var iconColor: NSColor {
+        switch self {
+        case .general: return .systemGray
+        case .activities: return .systemIndigo
+        case .presentation: return NSColor(calibratedWhite: 0.18, alpha: 1)
+        case .about: return .systemBlue
+        }
+    }
+    // A sidebar treats symbols and shapes as template content when selected.
+    // Render the complete badge once so selection keeps its original colors,
+    // just like the full-color icons in System Settings.
+    @MainActor var icon: Image {
+        Image(nsImage: Self.icons[self]!).renderingMode(.original)
+    }
+    @MainActor private static let icons: [Self: NSImage] = Dictionary(
+        uniqueKeysWithValues: allCases.map { page in
+            let renderer = ImageRenderer(content:
+                Image(systemName: page.symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(LinearGradient(colors: [
+                        Color(nsColor: page.iconColor.blended(withFraction: 0.16, of: .white) ?? page.iconColor),
+                        Color(nsColor: page.iconColor)
+                    ], startPoint: .top, endPoint: .bottom), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
+                    })
+            renderer.scale = 2
+            return (page, renderer.nsImage!)
+        })
     @ViewBuilder func destination(selectActivity: @escaping (ActivitySettingsPage) -> Void) -> some View {
         switch self {
         case .activities: ActivitySettings(selectPage: selectActivity)
@@ -36,62 +68,83 @@ final class SettingsNavigation: ObservableObject {
     var page: SettingsPage { selectedPage ?? .general }
 }
 
-/// Hosted in AppKit's titlebar so native window chrome cannot cover navigation.
+/// Keep the arrow-only button's hit area and title spacing stable.
+struct SettingsBackButton: View {
+    @ObservedObject var navigation: SettingsNavigation
+
+    var body: some View {
+        Button {
+            navigation.activityPage = nil
+        } label: {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 12, height: 16)
+                .frame(width: 36, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(navigation.activityPage == nil ? .tertiary : .primary)
+        .disabled(navigation.activityPage == nil)
+        .accessibilityLabel(Text("Back"))
+    }
+}
+
 struct SettingsNavigationHeader: View {
     @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
         HStack(spacing: 12) {
-            Button {
-                navigation.activityPage = nil
-            } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 17, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(navigation.activityPage == nil ? .tertiary : .primary)
-            .disabled(navigation.activityPage == nil)
-            .accessibilityLabel(Text("Back"))
+            SettingsBackButton(navigation: navigation)
             Text(navigation.activityPage?.title ?? navigation.page.title)
-                .font(.title2.bold())
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.8))
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 8)
+        .frame(height: SettingsView.headerHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct SettingsSidebar: View {
+    @ObservedObject var navigation: SettingsNavigation
+
+    var body: some View {
+        List(SettingsPage.allCases, selection: $navigation.selectedPage) { page in
+            Label {
+                Text(page.title)
+            } icon: {
+                page.icon
+            }
+            .tag(page)
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .onChange(of: navigation.selectedPage) { navigation.activityPage = nil }
     }
 }
 
 struct SettingsView: View {
-    static let sidebarWidth: CGFloat = 190
-    static let headerHeight: CGFloat = 52
+    static let sidebarWidth: CGFloat = 230
+    static let headerHeight: CGFloat = 40
     @ObservedObject var navigation: SettingsNavigation
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(SettingsPage.allCases, selection: $navigation.selectedPage) { page in
-                Label(page.title, systemImage: page.symbol)
-                    .tag(page)
+        Group {
+            if let activityPage = navigation.activityPage {
+                activityPage.destination
+            } else {
+                navigation.page.destination { navigation.activityPage = $0 }
             }
-            .listStyle(.sidebar)
-            .frame(width: Self.sidebarWidth)
-            .background(.bar, ignoresSafeAreaEdges: .top)
-
-            Divider()
-
-            Group {
-                if let activityPage = navigation.activityPage {
-                    activityPage.destination
-                } else {
-                    navigation.page.destination { navigation.activityPage = $0 }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onChange(of: navigation.selectedPage) { navigation.activityPage = nil }
         .formStyle(.grouped)
+        .pickerStyle(.menu)
+        // Grouped Form adds 23 points above its first heading on macOS. Match
+        // System Settings' 15-point gap while keeping the scroll viewport below
+        // the native titlebar (enforced by the hosting controller's container).
+        .contentMargins(.top, -8, for: .scrollContent)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.windowBackgroundColor).ignoresSafeArea(.container, edges: .top))
-        .tint(.accentColor)
+        .background(Color(NSColor.windowBackgroundColor))
     }
 }
 
@@ -117,7 +170,7 @@ struct SettingsActionRow<Content: View>: View {
 extension View {
     /// Shared typography for settings descriptions, permission notes and footers.
     func settingsNoteStyle() -> some View {
-        font(.caption)
+        font(.callout)
             .foregroundStyle(.secondary)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)

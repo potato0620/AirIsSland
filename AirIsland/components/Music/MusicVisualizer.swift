@@ -16,6 +16,7 @@ extension EnvironmentValues {
 struct AudioSpectrumView: View {
     @Binding var isPlaying: Bool
     var maximumHeight: CGFloat = 12
+    var alignsTrailing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.musicSpectrumVisible) private var visible
     @State private var levels = MusicSpectrumState.quiet
@@ -23,7 +24,7 @@ struct AudioSpectrumView: View {
     private var followsAudio: Bool { isPlaying && visible && !reduceMotion }
 
     var body: some View {
-        AudioSpectrumBars(levels: levels, maximumHeight: maximumHeight)
+        AudioSpectrumBars(levels: levels, maximumHeight: maximumHeight, alignsTrailing: alignsTrailing)
             .onReceive(ActivityCoordinator.shared.spectrumLevels) { update(followsAudio ? $0 : MusicSpectrumState.quiet) }
             .onChange(of: followsAudio, initial: true) { _, active in
                 update(active ? ActivityCoordinator.shared.spectrumSnapshot : MusicSpectrumState.quiet)
@@ -43,6 +44,7 @@ struct AudioSpectrumView: View {
 private struct AudioSpectrumBars: View, Animatable {
     var levels: [Double]
     let maximumHeight: CGFloat
+    let alignsTrailing: Bool
     @Environment(\.displayScale) private var displayScale
 
     typealias Pair = AnimatablePair<Double, Double>
@@ -62,7 +64,8 @@ private struct AudioSpectrumBars: View, Animatable {
         let spacing = floor(1.6 * scale) / scale
         let contentWidth = CGFloat(MusicSpectrumState.barCount) * 2
             + CGFloat(MusicSpectrumState.barCount - 1) * spacing
-        let leadingInset = floor((20 - contentWidth) * scale / 2) / scale
+        let remainingWidth = 20 - contentWidth
+        let leadingInset = alignsTrailing ? remainingWidth : floor(remainingWidth * scale / 2) / scale
         Canvas { context, size in
             for index in 0..<MusicSpectrumState.barCount {
                 let height = maximumHeight * levels[index]

@@ -46,6 +46,7 @@ struct DisplayInteractionSections: View {
                         Text(screen.name).tag(screen.uuid as String?)
                     }
                 }
+                .tint(.primary)
                 .onChange(of: NSScreen.screens) {
                     screens = NSScreen.screens.compactMap { screen in
                         guard let uuid = screen.displayUUID else { return nil }
@@ -74,6 +75,7 @@ struct DisplayInteractionSections: View {
                         HideNotchOption.nowPlayingOnly)
                     Text("Never hide").tag(HideNotchOption.never)
                 }
+                .tint(.primary)
             } header: {
                 Text("Displays")
             }
@@ -108,6 +110,7 @@ struct DisplayInteractionSections: View {
                     Text("Custom height")
                         .tag(WindowHeightMode.custom)
                 }
+                .tint(.primary)
                 .onChange(of: notchHeightMode) {
                     switch notchHeightMode {
                     case .matchRealNotchSize:
@@ -137,6 +140,7 @@ struct DisplayInteractionSections: View {
                     Text("Custom height")
                         .tag(WindowHeightMode.custom)
                 }
+                .tint(.primary)
                 .onChange(of: nonNotchHeightMode) {
                     switch nonNotchHeightMode {
                     case .matchMenuBar:
@@ -165,7 +169,6 @@ struct DisplayInteractionSections: View {
             NotchBehaviour()
 
         }
-        .accentColor(.effectiveAccent)
     }
 
     @ViewBuilder
@@ -207,6 +210,5 @@ struct Shortcuts: View {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
             }
         }
-        .accentColor(.effectiveAccent)
     }
 }

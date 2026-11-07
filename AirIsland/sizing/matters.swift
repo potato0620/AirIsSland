@@ -19,6 +19,23 @@ enum MusicPlayerImageSizes {
     static let padding: CGFloat = 5
     static let sectionSpacing: CGFloat = 8
     static let panelPadding: CGFloat = 12
+    static func compactPadding(height: CGFloat) -> CGFloat {
+        6 * min(1, max(0, height) / 32)
+    }
+
+    static func compactCornerScale(height: CGFloat) -> CGFloat {
+        // Keep the top and bottom curves from overlapping on shallow islands.
+        min(1, max(0, height) / (cornerRadiusInsets.closed.top + cornerRadiusInsets.closed.bottom))
+    }
+
+    static func compactOuterInset(height: CGFloat) -> CGFloat {
+        // The shape's straight sides start inside its bounding rectangle.
+        cornerRadiusInsets.closed.top * compactCornerScale(height: height) + compactPadding(height: height)
+    }
+
+    static func compactSide(height: CGFloat) -> CGFloat {
+        max(0, height - 2 * compactPadding(height: height))
+    }
 
     static func expandedSide(headerHeight: CGFloat) -> CGFloat {
         max(0, expandedNotchHeight - headerHeight - sectionSpacing - panelPadding - 2 * padding)

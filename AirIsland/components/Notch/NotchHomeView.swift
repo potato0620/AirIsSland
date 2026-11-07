@@ -41,11 +41,12 @@ struct AlbumArtPresentation: View {
 
     var body: some View {
         let headerHeight = max(24, closedHeight)
-        let closedSide = max(0, closedHeight - 12)
+        let closedSide = MusicPlayerImageSizes.compactSide(height: closedHeight)
         let openedSide = MusicPlayerImageSizes.expandedSide(headerHeight: headerHeight)
         let side = interpolate(closedSide, openedSide)
-        let leading = interpolate(cornerRadiusInsets.closed.bottom, expandedLeadingInset)
-        let top = interpolate(6, headerHeight + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding)
+        let leading = interpolate(MusicPlayerImageSizes.compactOuterInset(height: closedHeight), expandedLeadingInset)
+        let top = interpolate(MusicPlayerImageSizes.compactPadding(height: closedHeight),
+                              headerHeight + MusicPlayerImageSizes.sectionSpacing + MusicPlayerImageSizes.padding)
         let closedRadius = MusicPlayerImageSizes.cornerRadiusInset.closed
         let openedRadius = scalesCorners ? MusicPlayerImageSizes.cornerRadiusInset.opened : closedRadius
         let playbackScale = isArtworkPaused ? interpolate(1, 0.85) : 1
