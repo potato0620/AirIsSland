@@ -2,7 +2,7 @@
 """Prepare a signed stable update from an already built AirIsland.app.
 
 This does not publish a release, edit the repository feed, or export private keys.
-The key lives in the macOS login Keychain under the Sparkle account AirIsland.
+The key lives in the macOS login Keychain under the Sparkle account AirIsland-Personal.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RELEASES = "https://github.com/potato0620/AirIsSland/releases"
 FEED_URL = "https://raw.githubusercontent.com/potato0620/AirIsSland/main/updater/appcast.xml"
 SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
-KEY_ACCOUNT = "AirIsland"
+KEY_ACCOUNT = "AirIsland-Personal"
 
 
 def build_number(value: str) -> tuple[int, int, int]:

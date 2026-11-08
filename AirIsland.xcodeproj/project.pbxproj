@@ -808,14 +808,14 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 315;
+				CURRENT_PROJECT_VERSION = 316;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AirIslandHelper/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AirIslandHelper;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = "2.8.18";
+				MARKETING_VERSION = "2.8.19";
 				PRODUCT_BUNDLE_IDENTIFIER = theboringteam.boringnotch.BoringNotchXPCHelper;
 				PRODUCT_NAME = AirIslandHelper;
 				REGISTER_APP_GROUPS = YES;
@@ -833,14 +833,14 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 315;
+				CURRENT_PROJECT_VERSION = 316;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AirIslandHelper/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AirIslandHelper;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = "2.8.18";
+				MARKETING_VERSION = "2.8.19";
 				PRODUCT_BUNDLE_IDENTIFIER = theboringteam.boringnotch.BoringNotchXPCHelper;
 				PRODUCT_NAME = AirIslandHelper;
 				REGISTER_APP_GROUPS = YES;
@@ -987,7 +987,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 315;
+				CURRENT_PROJECT_VERSION = 316;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"AirIsland/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -1012,7 +1012,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = "2.8.18";
+				MARKETING_VERSION = "2.8.19";
 				PRODUCT_BUNDLE_IDENTIFIER = theboringteam.boringnotch;
 				PRODUCT_NAME = "AirIsland";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1039,7 +1039,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 315;
+				CURRENT_PROJECT_VERSION = 316;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"AirIsland/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -1063,7 +1063,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = "2.8.18";
+				MARKETING_VERSION = "2.8.19";
 				PRODUCT_BUNDLE_IDENTIFIER = theboringteam.boringnotch;
 				PRODUCT_NAME = "AirIsland";
 				PROVISIONING_PROFILE_SPECIFIER = "";

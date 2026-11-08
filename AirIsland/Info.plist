@@ -13,7 +13,7 @@
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/potato0620/AirIsSland/main/updater/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>S/Uo8xaIs1iwP1rdCEf5g2a28YC0UqDTsKjVlARTZgM=</string>
+	<string>3P+AwmDWhwmkkqg/zMnEuVklLnW5phUV9iQFBRltNPo=</string>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>

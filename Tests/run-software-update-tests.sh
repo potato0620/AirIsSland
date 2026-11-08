@@ -35,12 +35,12 @@ PY
 )"
   ARCHIVES=("$PACKAGE_DIR"/*.zip)
   [[ ${#ARCHIVES[@]} -eq 1 && -f "${ARCHIVES[0]}" ]]
-  "$SPARKLE_BIN/sign_update" --account AirIsland --verify "${ARCHIVES[0]}" "$SIGNATURE"
+  "$SPARKLE_BIN/sign_update" --account AirIsland-Personal --verify "${ARCHIVES[0]}" "$SIGNATURE"
   TAMPER_DIR="$(mktemp -d "$CHECK_ROOT/tamper.XXXXXX")"
   trap 'rm -rf "$TAMPER_DIR"' EXIT
   cp "${ARCHIVES[0]}" "$TAMPER_DIR/tampered.zip"
   printf 'changed' >> "$TAMPER_DIR/tampered.zip"
-  if "$SPARKLE_BIN/sign_update" --account AirIsland --verify "$TAMPER_DIR/tampered.zip" "$SIGNATURE" > "$CHECK_ROOT/tamper.log" 2>&1; then
+  if "$SPARKLE_BIN/sign_update" --account AirIsland-Personal --verify "$TAMPER_DIR/tampered.zip" "$SIGNATURE" > "$CHECK_ROOT/tamper.log" 2>&1; then
     echo "The tampered update unexpectedly passed signature verification" >&2
     exit 1
   fi
