@@ -1,0 +1,121 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.33673,0.55517,0.95448,1.00000",
+      "display-p3:0.00000,0.20919,0.66031,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "hidden" : false,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.99216,1.00000,1.00000,0.60000",
+                  "srgb:0.99216,1.00000,1.00000,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "display-p3:0.95000,0.95000,0.95000,0.60000",
+                  "srgb:1.00000,1.00000,1.00000,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  }
+                }
+              }
+            }
+          ],
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "03-Live-Spectrum.svg",
+          "name" : "03-Live-Spectrum",
+          "position" : {
+            "scale" : 2.2,
+            "translation-in-points" : [
+              35.200000000000045,
+              -41.799999999999955
+            ]
+          }
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : "system-light"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "04-Contour-Vertical-Blur.png",
+          "name" : "04-Contour-Vertical-Blur",
+          "opacity" : 0.7,
+          "position" : {
+            "scale" : 1.06,
+            "translation-in-points" : [
+              0,
+              -12.910000000000082
+            ]
+          }
+        }
+      ],
+      "name" : "Lightfall",
+      "opacity" : 1,
+      "refractivity" : {
+        "depth" : 0,
+        "enabled" : false,
+        "strength" : 0.5
+      },
+      "shadow-specializations" : [
+        {
+          "value" : {
+            "kind" : "neutral",
+            "opacity" : 1.32
+          }
+        },
+        {
+          "appearance" : "light",
+          "value" : {
+            "kind" : "neutral",
+            "opacity" : 1.32
+          }
+        }
+      ],
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.8
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

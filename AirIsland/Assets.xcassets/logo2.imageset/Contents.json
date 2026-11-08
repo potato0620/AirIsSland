@@ -3,6 +3,16 @@
     {
       "filename": "AirIsland.png",
       "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "AirIsland-dark.png",
+      "idiom": "universal"
     }
   ],
   "info": {

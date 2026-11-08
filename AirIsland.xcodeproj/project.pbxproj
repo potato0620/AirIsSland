@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE11080000000000000001 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0DE11080000000000000002 /* AppIcon.icon */; };
 		C0DE05110000000000000006 /* CardSwitchingGuideDark.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = C0DE05110000000000000005 /* CardSwitchingGuideDark.mp4 */; };
 		C0DE05110000000000000004 /* CardSwitchingGuide.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = C0DE05110000000000000003 /* CardSwitchingGuide.mp4 */; };
 		C0DE05110000000000000002 /* CardSwitchingDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE05110000000000000001 /* CardSwitchingDemo.swift */; };
@@ -142,6 +143,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C0DE11080000000000000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; path = Branding/AppIcon.icon; sourceTree = SOURCE_ROOT; };
 		C0DE05110000000000000005 /* CardSwitchingGuideDark.mp4 */ = {isa = PBXFileReference; lastKnownFileType = video.mp4; path = Media/CardSwitchingGuideDark.mp4; sourceTree = "<group>"; };
 		C0DE05110000000000000003 /* CardSwitchingGuide.mp4 */ = {isa = PBXFileReference; lastKnownFileType = video.mp4; path = Media/CardSwitchingGuide.mp4; sourceTree = "<group>"; };
 		C0DE05110000000000000001 /* CardSwitchingDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardSwitchingDemo.swift; sourceTree = "<group>"; };
@@ -362,6 +364,7 @@
 		14CEF4092C5CAED200855D72 = {
 			isa = PBXGroup;
 			children = (
+				C0DE11080000000000000002 /* AppIcon.icon */,
 				112B0EB62E30DD0F00562D6C /* mediaremote-adapter */,
 				14CEF4142C5CAED300855D72 /* AirIsland */,
 				11F748502EC9AABA00F841DB /* AirIslandHelper */,
@@ -682,6 +685,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DE11080000000000000001 /* AppIcon.icon in Resources */,
 				14CEF41D2C5CAED400855D72 /* Preview Assets.xcassets in Resources */,
 				14CEF41A2C5CAED400855D72 /* Assets.xcassets in Resources */,
 				112B0EB92E30DD0F00562D6C /* mediaremote-adapter.pl in Resources */,
