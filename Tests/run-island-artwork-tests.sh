@@ -9,7 +9,7 @@ python3 - "$PROJECT_ROOT" "$CHECK_PROJECT" <<'PY'
 from pathlib import Path
 import re, shutil, sys
 root, check = map(Path, sys.argv[1:])
-for folder in ['AirIsland', 'AirIsland.xcodeproj', 'AirIslandHelper', 'mediaremote-adapter']:
+for folder in ['AirIsland', 'AirIsland.xcodeproj', 'AirIslandHelper', 'mediaremote-adapter', 'Branding']:
     shutil.copytree(root / folder, check / folder, dirs_exist_ok=True, ignore=shutil.ignore_patterns('xcuserdata'))
 # Keep production views and scheduling. Prevent real provider startup and isolate preference writes
 # by using inert source initializers and an independent test bundle identifier below.

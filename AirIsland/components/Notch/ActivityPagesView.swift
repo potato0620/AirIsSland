@@ -112,8 +112,12 @@ struct TimerActivityPage: View, Equatable {
     @State private var transitionID = UUID()
     @State private var retiringFinished: TimerSession?
 
+    private var showsFinished: Bool {
+        (retiringFinished ?? activities.timer)?.phase == .finished
+    }
+
     var body: some View {
-        Group {
+        ZStack {
             if let timer = retiringFinished ?? activities.timer, timer.phase == .finished {
                 HStack(spacing: 14) {
                     HStack(spacing: 10) {
@@ -127,6 +131,7 @@ struct TimerActivityPage: View, Equatable {
                     }
                 }
                 .allowsHitTesting(retiringFinished == nil)
+                .transition(.blurReplace)
             } else {
                 TimelineView(.animation(minimumInterval: 1, paused: !active || activities.timer?.phase != .running)) { context in
                     TimerInteractionSurface(progress: runProgress,
@@ -134,9 +139,14 @@ struct TimerActivityPage: View, Equatable {
                         timer: activities.timer ?? lastTimer, date: context.date,
                         hasTimer: activities.timer != nil, start: startTimer)
                 }
+                .allowsHitTesting(!showsFinished)
+                .transition(.blurReplace)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A deadline can arrive while the island is already fully expanded.
+        // Animate only this content replacement, independently of its geometry.
+        .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: showsFinished)
         .onChange(of: activities.timer, initial: true) { previous, next in
             guard retiringFinished == nil else { return }
             // A confirmation in another island window updates this same source.

@@ -190,9 +190,15 @@ final class ReminderFocusTestWindow: IslandWindow {
             }
             if CommandLine.arguments.contains("--personal-only") {
                 await verifyPersonalActivityRuntime(output: output)
+                await verifyTimerCompletionTransition(output: output)
                 await verifyFinishedTimerCollapse(output: output)
                 await verifyActionButtonSizes(output: output)
                 await verifyAlarmMotion(output: output)
+                exit(0)
+            }
+            if CommandLine.arguments.contains("--timer-completion-only") {
+                await verifyTimerCompletionTransition(output: output)
+                await verifyFinishedTimerCollapse(output: output)
                 exit(0)
             }
             if CommandLine.arguments.contains("--timer-collapse-only") {
@@ -240,6 +246,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             await verifyEnabledPages(output: output)
             await verifyResidentSelection(output: output)
             await verifyPersonalActivityRuntime(output: output)
+            await verifyTimerCompletionTransition(output: output)
             await verifyFinishedTimerCollapse(output: output)
             await verifyReminderInlineEditing(output: output)
             await verifyActionButtonSizes(output: output)
@@ -2083,6 +2090,72 @@ final class ReminderFocusTestWindow: IslandWindow {
         }
     }
 
+    @MainActor static func verifyTimerCompletionTransition(output: URL) async {
+        let source = TimerActivityManager.shared
+        let activities = ActivityCoordinator.shared
+        let previousEnabled = Defaults[.timerActivityEnabled]
+        let previousReduceMotion = IslandArtworkRenderProbe.reduceMotion
+        Defaults[.timerActivityEnabled] = true
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 480, height: 190),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            source.cancel(); window.orderOut(nil); window.contentView = nil
+            Defaults[.timerActivityEnabled] = previousEnabled
+            IslandArtworkRenderProbe.reduceMotion = previousReduceMotion
+        }
+        for reduced in [false, true] {
+            IslandArtworkRenderProbe.reduceMotion = reduced
+            source.start(duration: 2)
+            let timerID = activities.timer!.id
+            // Keep the alarm static so pixel changes measure the page replacement.
+            let host = NSHostingView(rootView: TimerActivityPage(active: false, expansion: 1)
+                .preferredColorScheme(.dark)
+                .frame(width: 418, height: 138).frame(width: 480, height: 190).background(.black))
+            window.contentView = host
+            window.orderBack(nil)
+            try? await Task.sleep(for: .seconds(0.5))
+            var samples = [Data]()
+            var sampleTimes = [TimeInterval]()
+            var deadlineObserved: Date?
+            for frame in 0..<120 {
+                try? await Task.sleep(for: .seconds(0.016))
+                guard activities.timer?.phase == .finished else { continue }
+                require(activities.timer?.id == timerID && activities.current?.kind == .timerFinished,
+                        "Completion transition delayed or replaced the real timer activity")
+                if deadlineObserved == nil { deadlineObserved = Date() }
+                host.layoutSubtreeIfNeeded()
+                let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+                host.cacheDisplay(in: host.bounds, to: rep)
+                // Crop text only: exclude the separately animated alarm and controls.
+                let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+                let crop = rep.cgImage!.cropping(to: CGRect(x: 80 * scale, y: 35 * scale,
+                                                            width: 255 * scale, height: 120 * scale))!
+                let text = NSBitmapImageRep(cgImage: crop)
+                let pixels = Data(bytes: text.bitmapData!, count: text.bytesPerRow * text.pixelsHigh)
+                samples.append(pixels)
+                sampleTimes.append(Date().timeIntervalSince(deadlineObserved!))
+                if samples.count <= 4 || sampleTimes.last! > 1.1 {
+                    try! rep.representation(using: .png, properties: [:])!.write(to:
+                        output.appendingPathComponent("timer-completion-\(reduced)-\(frame).png"))
+                }
+                if sampleTimes.last! > 1.2 { break }
+            }
+            require(samples.count >= 4, "Did not sample the real timer deadline transition")
+            let stable = samples.last!
+            require(samples.suffix(2).allSatisfy { $0 == stable }, "Finished timer text did not settle")
+            if reduced {
+                require(samples.allSatisfy { $0 == stable }, "Reduce Motion animated the completion replacement")
+            } else {
+                let intermediate = zip(samples, sampleTimes).filter { $0.1 < 0.5 && $0.0 != stable }.map { $0.0 }
+                require(Set(intermediate).count >= 3,
+                        "Expanded countdown jumped directly to the finished page without intermediate rendered frames")
+            }
+            window.contentView = nil
+        }
+        print("PASS: real deadline replaces expanded countdown through intermediate frames; Reduce Motion is immediate")
+    }
+
     @MainActor static func verifyFinishedTimerCollapse(output: URL) async {
         let source = TimerActivityManager.shared
         let activities = ActivityCoordinator.shared
@@ -2147,6 +2220,8 @@ final class ReminderFocusTestWindow: IslandWindow {
                 if vm.notchState == .open && expansion() > 0.999 && IslandArtworkRenderProbe.finishedTimerTexts > 0 { break }
             }
             require(IslandArtworkRenderProbe.finishedTimerTexts > 0, "Finished timer page was not mounted")
+            // Inspect dismissal after the newly animated completion has entered.
+            try? await Task.sleep(for: .seconds(0.65))
             snapshot("timer-dismiss-\(index)-before", requireText: true)
             let action = IslandArtworkRenderProbe.actionHandlers[restart ? "arrow.clockwise" : "xmark"]
             require(action != nil, "Finished timer action was not available")
