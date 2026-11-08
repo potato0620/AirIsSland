@@ -1,5 +1,5 @@
 <p align="center"><img src="Branding/AirIsland-icon-master.png" width="160" alt="AirIsland 图标"></p>
-<h1 align="center">AirIsland · 轻岛</h1>
+<h1 align="center">AirIsland</h1>
 <p align="center">Mac 上轻量的实时活动入口。</p>
 <p align="center">简体中文 · <a href="README.en.md">English</a></p>
 <p align="center"><a href="https://github.com/potato0620/AirIsSland/releases/latest">下载最新版本</a> · <a href="docs/INSTALLATION.md">安装指南</a></p>
