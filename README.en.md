@@ -23,6 +23,15 @@ AirIsland adapts to light and dark mode and respects Reduce Motion. Settings let
 
 The audio spectrum analyzes only the current player and audio helper processes inside its app bundle. Audio is never saved or uploaded. Permissions for reminders and system feedback are requested when you use the relevant features.
 
+### Reminders
+
+Expand the island and switch to the Reminders page. On first use, click **Connect Reminders** and grant access when macOS prompts you.
+
+- **Edit a reminder.** Click its text to edit it in place, then press **Return** to save it to Apple Reminders. Press **Esc** or switch pages to discard the edit. Clicking outside the island also discards the edit and collapses the island.
+- **Open Apple Reminders.** Click the **blue reminder count** in the upper-right corner of the Reminders page.
+- **Add a reminder.** Click the plus button and enter the text. Press Return or click the checkmark to save, or click the X to cancel.
+- **Complete a reminder.** Click the circle to its left. The change syncs to Apple Reminders.
+
 ## Download and install
 
 Current release packages support **Apple Silicon Macs running macOS 15 or later**.
