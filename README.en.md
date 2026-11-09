@@ -10,7 +10,7 @@ It works with notched and notchless displays, including setups with multiple mon
 
 ## Features
 
-- **Music**: See the current track, artwork, and live audio spectrum. Control playback, skip tracks, and seek. A brief preview shows the title and artist when the track changes.
+- **Music**: See the current track, artwork, and live audio spectrum. Control playback, skip tracks, and seek. A brief preview shows the title and artist when the track changes. Lyrics are currently unavailable because the macOS Now Playing interface does not provide them.
 - **Reminders**: Connect to Apple Reminders, view all lists or a selected list, and add, edit, or complete tasks from the island.
 - **Timer**: Scroll to set a duration, then start, pause, or resume the countdown. The island expands when time is up, with an option to restart for the same duration.
 - **System feedback**: See brief indicators for volume, display brightness, keyboard backlight, and power state changes.
