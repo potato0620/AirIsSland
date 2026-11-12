@@ -4,6 +4,12 @@
 <p align="center">简体中文 · <a href="README.en.md">English</a></p>
 <p align="center"><a href="https://github.com/potato0620/AirIsSland/releases/latest">下载最新版本</a> · <a href="docs/INSTALLATION.md">安装指南</a></p>
 
+
+
+https://github.com/user-attachments/assets/65c4d691-fb6a-44f0-a0f7-8e95e3202416
+
+
+
 AirIsland 将音乐、提醒事项、计时器和系统反馈集中在 Mac 屏幕顶部。没有活动时安静收起，有活动时一眼看懂，需要操作时轻轻展开。
 
 支持有刘海和无刘海的屏幕，也可在多显示器环境中使用。
