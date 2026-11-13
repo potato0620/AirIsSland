@@ -18,6 +18,12 @@ public enum NotchState {
     case open
 }
 
+/// How the island announces an agent session state change.
+enum AgentChangeAnimation: String, CaseIterable, Defaults.Serializable {
+    case stretch
+    case expand
+}
+
 enum WindowHeightMode: String, Defaults.Serializable {
     case matchMenuBar = "Match menubar height"
     case matchRealNotchSize = "Match real notch height"

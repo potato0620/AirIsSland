@@ -1,7 +1,7 @@
 import Foundation
 
 enum IslandPage: Int, CaseIterable, Identifiable {
-    case music, reminders, timer
+    case music, reminders, timer, codex
     var id: Self { self }
 
     var activityKind: IslandActivityKind {
@@ -9,7 +9,53 @@ enum IslandPage: Int, CaseIterable, Identifiable {
         case .music: return .music
         case .reminders: return .reminders
         case .timer: return .timer
+        case .codex: return .codex
         }
+    }
+
+    var identifier: String {
+        switch self {
+        case .music: return "music"
+        case .reminders: return "reminders"
+        case .timer: return "timer"
+        case .codex: return "codex"
+        }
+    }
+
+    init?(identifier: String) {
+        switch identifier {
+        case "music": self = .music
+        case "reminders": self = .reminders
+        case "timer": self = .timer
+        case "codex": self = .codex
+        default: return nil
+        }
+    }
+
+    static let defaultOrder = "music,reminders,timer,codex"
+
+    /// Unknown and duplicate identifiers are dropped; missing pages keep their
+    /// default relative order at the end, so an upgrade never hides a page.
+    static func ordered(from raw: String) -> [IslandPage] {
+        var result: [IslandPage] = []
+        for value in raw.split(separator: ",") {
+            guard let page = IslandPage(identifier: value.trimmingCharacters(in: .whitespaces)),
+                  !result.contains(page) else { continue }
+            result.append(page)
+        }
+        for page in IslandPage.allCases where !result.contains(page) {
+            result.append(page)
+        }
+        return result
+    }
+
+    static func moving(_ raw: String, _ page: IslandPage, by offset: Int) -> String {
+        var pages = ordered(from: raw)
+        guard let index = pages.firstIndex(of: page) else { return raw }
+        let target = min(max(0, index + offset), pages.count - 1)
+        guard target != index else { return raw }
+        pages.swapAt(index, target)
+        return pages.map(\.identifier).joined(separator: ",")
     }
 }
 
@@ -26,7 +72,9 @@ struct IslandPager {
     private var committed = true
 
     mutating func updatePages(_ pages: [IslandPage]) {
-        let available = IslandPage.allCases.filter { pages.contains($0) }
+        // Preserve the caller's order: it is the user's page order preference.
+        var available: [IslandPage] = []
+        for page in pages where !available.contains(page) { available.append(page) }
         let next = available.isEmpty ? [.music] : available
         guard next != self.pages else { return }
         self.pages = next

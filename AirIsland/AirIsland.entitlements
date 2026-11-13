@@ -12,6 +12,13 @@
 	<true/>
 	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/.codex/</string>
+		<string>/.dsh/</string>
+		<string>/.claude/</string>
+		<string>/.local/share/opencode/</string>
+	</array>
 	<key>com.apple.security.temporary-exception.apple-events</key>
 	<array>
 		<string>com.spotify.client</string>

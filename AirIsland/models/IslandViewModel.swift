@@ -30,8 +30,14 @@ class IslandViewModel: NSObject, ObservableObject {
     @Published var notchSize: CGSize = getClosedNotchSize()
     @Published var closedNotchSize: CGSize = getClosedNotchSize()
 
+    /// Page content can request extra height (agent sessions). The window follows
+    /// through the existing notchHeightChanged notification.
+    @Published var expandedHeightDelta: CGFloat = 0
+
     var expandedNotchSize: CGSize {
-        getExpandedNotchSize(baseWidth: closedNotchSize.width, screenUUID: screenUUID)
+        var size = getExpandedNotchSize(baseWidth: closedNotchSize.width, screenUUID: screenUUID)
+        size.height += max(0, expandedHeightDelta)
+        return size
     }
 
     var windowSize: CGSize {

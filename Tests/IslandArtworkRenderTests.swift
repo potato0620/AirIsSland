@@ -872,6 +872,7 @@ final class ReminderFocusTestWindow: IslandWindow {
             case .music: pageView = AnyView(NotchHomeView())
             case .reminders: pageView = AnyView(RemindersActivityPage())
             case .timer: pageView = AnyView(TimerActivityPage())
+            case .codex: pageView = AnyView(CodexActivityPage())
             }
             let rendered = ImageRenderer(content: pageView
                 .frame(width: vm.expandedNotchSize.width - 80, height: 130)

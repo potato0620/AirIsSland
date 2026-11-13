@@ -4,13 +4,14 @@ import KeyboardShortcuts
 
 /// Add future approved activities here without adding another top-level settings tab.
 enum ActivitySettingsPage: String, CaseIterable, Identifiable {
-    case music, reminders, timer, feedback
+    case music, reminders, codex, timer, feedback
     var id: Self { self }
     var title: LocalizedStringKey {
         switch self {
         case .music: return "Media"
         case .feedback: return "System Feedback"
         case .reminders: return "Reminders"
+        case .codex: return "Agents"
         case .timer: return "Timer"
         }
     }
@@ -19,6 +20,7 @@ enum ActivitySettingsPage: String, CaseIterable, Identifiable {
         case .music: return "music.note"
         case .feedback: return "dial.medium.fill"
         case .reminders: return "checklist"
+        case .codex: return "terminal"
         case .timer: return "timer"
         }
     }
@@ -27,6 +29,7 @@ enum ActivitySettingsPage: String, CaseIterable, Identifiable {
         case .music: return "Now playing and essential playback controls."
         case .feedback: return "Brief feedback for system adjustments and power changes."
         case .reminders: return "Sync incomplete tasks from Apple Reminders lists."
+        case .codex: return "Sessions from Codex, DeepSeek Harness, Claude Code, and OpenCode."
         case .timer: return "Countdowns with a reminder when time is up."
         }
     }
@@ -35,6 +38,7 @@ enum ActivitySettingsPage: String, CaseIterable, Identifiable {
         case .music: MusicActivitySettings()
         case .feedback: SystemFeedbackSettings()
         case .reminders: RemindersActivitySettings()
+        case .codex: CodexActivitySettings()
         case .timer: TimerActivitySettings()
         }
     }
@@ -87,6 +91,62 @@ struct RemindersActivitySettings: View {
             }
         }
         .task { source.refresh() }
+    }
+}
+
+
+/// Retention choices for finished agent sessions, in minutes. Zero means never expire.
+enum FinishedRetention {
+    static let options = [1, 2, 3, 5, 10, 20, 30, 60, 90, 120, 150, 180, 0]
+
+    static func label(minutes: Int) -> LocalizedStringKey {
+        switch minutes {
+        case 0: return "Never"
+        case ..<60: return "\(minutes) min"
+        case 90, 150: return "\(minutes / 60) h \(minutes % 60) min"
+        default: return "\(minutes / 60) h"
+        }
+    }
+}
+
+struct CodexActivitySettings: View {
+    @ObservedObject private var source = CodexActivityManager.shared
+    @Default(.codexActivityEnabled) private var enabled
+    @Default(.showFinishedAgentSessions) private var showFinished
+    @Default(.finishedSessionMinutes) private var finishedMinutes
+    @Default(.agentChangeAnimation) private var changeAnimation
+    var body: some View {
+        Form {
+            Section {
+                Defaults.Toggle(key: .codexActivityEnabled) { Text("Enable agent sessions") }
+                if enabled {
+                    Defaults.Toggle(key: .showFinishedAgentSessions) { Text("Show finished sessions") }
+                    if showFinished {
+                        Picker("Keep finished sessions for", selection: $finishedMinutes) {
+                            ForEach(FinishedRetention.options, id: \.self) { minutes in
+                                Text(FinishedRetention.label(minutes: minutes)).tag(minutes)
+                            }
+                        }
+                        .tint(.primary)
+                    }
+                    Picker("State change animation", selection: $changeAnimation) {
+                        Text("Stretch").tag(AgentChangeAnimation.stretch)
+                        Text("Expand").tag(AgentChangeAnimation.expand)
+                    }
+                    .tint(.primary)
+                    Text(source.available
+                         ? LocalizedStringKey("\(source.sessions.filter(\.isPending).count) active sessions.")
+                         : LocalizedStringKey("No local agent data was found."))
+                        .settingsNoteStyle()
+                }
+            } footer: {
+                Text("The island only reads Codex thread metadata on this Mac. Approvals and read state stay in Codex.")
+                    .settingsNoteStyle()
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .task { await source.refresh() }
     }
 }
 

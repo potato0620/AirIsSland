@@ -69,8 +69,9 @@ struct ActivityScheduler {
         switch kind {
         case .timerFinished: return 110
         case .timer: return 30
-        case .reminders: return nil
+        case .reminders, .codex: return nil
         case .power: return 80
+        case .agentChange: return 105
         case .musicChange: return 100
         case .music: return 10
         case .volume, .brightness, .backlight, .mic: return 100
@@ -80,7 +81,7 @@ struct ActivityScheduler {
     private static func isPersistent(_ kind: IslandActivityKind) -> Bool {
         switch kind {
         case .music, .timer: return true
-        case .reminders, .timerFinished, .power, .musicChange, .volume, .brightness, .backlight, .mic: return false
+        case .reminders, .codex, .agentChange, .timerFinished, .power, .musicChange, .volume, .brightness, .backlight, .mic: return false
         }
     }
 
@@ -88,7 +89,8 @@ struct ActivityScheduler {
         switch kind {
         case .volume, .brightness, .backlight, .mic: return 1.5
         case .power, .musicChange: return 3
-        case .music, .timer, .timerFinished, .reminders: return nil
+        case .agentChange: return 5
+        case .music, .timer, .timerFinished, .reminders, .codex: return nil
         }
     }
 }

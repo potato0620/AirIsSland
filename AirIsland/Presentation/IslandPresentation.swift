@@ -8,6 +8,8 @@ enum IslandPresentation: Equatable {
     case feedback(IslandActivity)
     case power
     case timer(finished: Bool)
+    /// Transient compact strip: session name on the left, state transition on the right.
+    case agentPeek(AgentSessionChange)
 
     init(activity: IslandActivity?) {
         guard let activity else { self = .idle; return }
@@ -17,7 +19,9 @@ enum IslandPresentation: Equatable {
         case .power: self = .power
         case .timer: self = .timer(finished: false)
         case .timerFinished: self = .timer(finished: true)
-        case .reminders: self = .idle
+        case .reminders, .codex: self = .idle
+        case .agentChange:
+            if let change = activity.agentChange { self = .agentPeek(change) } else { self = .idle }
         case .volume, .brightness, .backlight, .mic: self = .feedback(activity)
         }
     }
@@ -32,6 +36,11 @@ enum IslandPresentation: Equatable {
 
     /// Pending timer completion uses the existing full panel until acknowledged.
     var requiresExpandedTimer: Bool { self == .timer(finished: true) }
+
+    var agentChange: AgentSessionChange? {
+        if case .agentPeek(let change) = self { return change }
+        return nil
+    }
 
     var feedback: IslandActivity? {
         if case .feedback(let activity) = self { return activity }

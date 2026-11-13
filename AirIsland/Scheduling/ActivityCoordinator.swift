@@ -10,6 +10,8 @@ final class ActivityCoordinator: ObservableObject {
     @Published private(set) var current: IslandActivity?
     @Published private(set) var timer: TimerSession?
     @Published private(set) var reminders: [ReminderTask] = []
+    @Published private(set) var agentSessions: [AgentSession] = []
+    @Published private(set) var agentChange: AgentSessionChange?
     @Published private(set) var spectrumRequest: MusicSpectrumRequest?
     // A separate payload publisher avoids reevaluating the whole island at audio cadence.
     private let spectrumValues = CurrentValueSubject<[Double], Never>(MusicSpectrumState.quiet)
@@ -33,6 +35,13 @@ final class ActivityCoordinator: ObservableObject {
         }.store(in: &preferences)
         Defaults.publisher(.remindersActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in if !Defaults[.remindersActivityEnabled] { self?.setReminders([]) } }
+        }.store(in: &preferences)
+        Defaults.publisher(.codexActivityEnabled).sink { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !Defaults[.codexActivityEnabled] else { return }
+                self.agentChange = nil
+                self.setAgentSessions([])
+            }
         }.store(in: &preferences)
         Defaults.publisher(.musicLiveActivityEnabled).sink { [weak self] _ in
             Task { @MainActor in self?.refreshMusic() }
@@ -137,6 +146,21 @@ final class ActivityCoordinator: ObservableObject {
         reminders = tasks
         if tasks.isEmpty { scheduler.end(.reminders) }
         else { scheduler.submit(IslandActivity(kind: .reminders, reminders: tasks), at: now) }
+        refresh()
+    }
+
+    func setAgentSessions(_ sessions: [AgentSession], change: AgentSessionChange? = nil) {
+        let sessions = Defaults[.codexActivityEnabled] ? sessions : []
+        agentSessions = sessions
+        if sessions.isEmpty { scheduler.end(.codex) }
+        else { scheduler.submit(IslandActivity(kind: .codex, agentSessions: sessions), at: now) }
+        if let change, Defaults[.codexActivityEnabled] {
+            agentChange = change
+            scheduler.submit(
+                IslandActivity(kind: .agentChange, agentSessions: sessions, agentChange: change),
+                at: now
+            )
+        }
         refresh()
     }
 

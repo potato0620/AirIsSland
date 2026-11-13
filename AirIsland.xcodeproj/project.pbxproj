@@ -22,6 +22,8 @@
         A1A1A2000000000000000014 /* IslandHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000014; };
         A1A1A2000000000000000015 /* HorizontalPagingGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000015; };
         A1A1A2000000000000000016 /* ActivityPagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000016; };
+        A1A1A2000000000000000021 /* CodexSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000021; };
+        A1A1A2000000000000000022 /* CodexActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1000000000000000022; };
 		C0DE00020000000000000001 /* NetEaseTrackMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */; };
 		C0DE00020000000000000003 /* NetEaseTrackMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */; };
 		C0DE00010000000000000001 /* NowPlayingStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00010000000000000002 /* NowPlayingStream.swift */; };
@@ -158,6 +160,8 @@
         A1A1A1000000000000000014 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Presentation/IslandHaptics.swift"; sourceTree = "<group>"; };
         A1A1A1000000000000000015 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "extensions/HorizontalPagingGesture.swift"; sourceTree = "<group>"; };
         A1A1A1000000000000000016 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "components/Notch/ActivityPagesView.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000021 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Activities/CodexSessions.swift"; sourceTree = "<group>"; };
+        A1A1A1000000000000000022 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "managers/CodexActivityManager.swift"; sourceTree = "<group>"; };
 		C0DE00020000000000000002 /* NetEaseTrackMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetEaseTrackMetadata.swift; sourceTree = "<group>"; };
 		C0DE00010000000000000002 /* NowPlayingStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingStream.swift; sourceTree = "<group>"; };
 		111BEA602ED09B1B0079DD4E /* NSScreen+UUID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+UUID.swift"; sourceTree = "<group>"; };
@@ -410,6 +414,8 @@
                 A1A1A1000000000000000014,
                 A1A1A1000000000000000015,
                 A1A1A1000000000000000016,
+                A1A1A1000000000000000021,
+                A1A1A1000000000000000022,
 				A1A1A1000000000000000001 /* ActivityScheduler.swift */,
 				A1A1A1000000000000000002 /* ActivityCoordinator.swift */,
 				A1A1A1000000000000000008 /* IslandBackdrop.swift */,
@@ -768,6 +774,8 @@
                 A1A1A2000000000000000014,
                 A1A1A2000000000000000015,
                 A1A1A2000000000000000016,
+                A1A1A2000000000000000021,
+                A1A1A2000000000000000022,
 				A1A1A2000000000000000001 /* ActivityScheduler.swift in Sources */,
 				A1A1A2000000000000000002 /* ActivityCoordinator.swift in Sources */,
 				A1A1A2000000000000000008 /* IslandBackdrop.swift in Sources */,
