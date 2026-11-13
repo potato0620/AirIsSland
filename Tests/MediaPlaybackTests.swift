@@ -84,13 +84,51 @@ final class MediaPlaybackTests: XCTestCase {
         XCTAssertEqual(state.title, "大封面中文歌")
     }
 
-    func testFractionalTimestampAndPausePosition() throws {
+    func testTimestampOnlyDiffKeepsUnchangedElapsedAnchor() throws {
         let initial = try update(#"{"diff":false,"payload":{"title":"Song","duration":240,"elapsedTime":10,"playing":true,"timestamp":"2026-11-01T08:00:00.500Z"}}"#)
             .applying(to: PlaybackState(bundleIdentifier: ""))
         let state = try update(#"{"diff":true,"payload":{"playing":false,"timestamp":"2026-11-01T08:00:02.500Z"}}"#)
             .applying(to: initial)
-        XCTAssertEqual(state.currentTime, 12, accuracy: 0.001)
+        XCTAssertEqual(state.currentTime, 10, accuracy: 0.001)
         XCTAssertFalse(state.isPlaying)
+    }
+
+    func testMicrosecondStreamPreservesSubsecondPausePosition() throws {
+        var session = NowPlayingPlaybackSession()
+        // Values captured from the real NetEase stream. Its default ISO date
+        // discards .180129 seconds, causing a later pause packet to rewind.
+        let anchor = Date(timeIntervalSince1970: 1794542581.180129)
+        let initial = session.receive(try update(#"{"diff":false,"payload":{"bundleIdentifier":"com.netease.163music","title":"Song","playing":true,"playbackRate":1,"elapsedTimeMicros":67362860,"durationMicros":133630843,"timestampEpochMicros":1794542581180129}}"#), neteaseIsRunning: true, now: anchor)
+        XCTAssertEqual(initial.currentTime, 67.362860, accuracy: 0.000001)
+        XCTAssertEqual(initial.duration, 133.630843, accuracy: 0.000001)
+        XCTAssertEqual(initial.lastUpdated.timeIntervalSince1970, anchor.timeIntervalSince1970, accuracy: 0.000001)
+        let stoppedAt = anchor.addingTimeInterval(0.738073)
+        let pending = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: stoppedAt)
+        XCTAssertEqual(pending.currentTime, 68.100933, accuracy: 0.000001)
+        _ = session.confirmPendingPause(now: stoppedAt.addingTimeInterval(0.31))
+        let confirmed = session.receive(try update(#"{"diff":true,"payload":{"playbackRate":0,"elapsedTimeMicros":68100933,"timestampEpochMicros":1794542582455764}}"#), neteaseIsRunning: true, now: stoppedAt.addingTimeInterval(0.55))
+        XCTAssertEqual(confirmed.currentTime, pending.currentTime, accuracy: 0.000001)
+
+        let resumeTime = Date(timeIntervalSince1970: 1794542584.077689)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":true}}"#), neteaseIsRunning: true, now: resumeTime)
+        let resumed = session.receive(try update(#"{"diff":true,"payload":{"playbackRate":1,"timestampEpochMicros":1794542584077689}}"#), neteaseIsRunning: true, now: resumeTime)
+        XCTAssertEqual(resumed.currentTime, confirmed.currentTime, accuracy: 0.000001)
+        XCTAssertEqual(resumed.lastUpdated.timeIntervalSince1970, resumeTime.timeIntervalSince1970, accuracy: 0.000001)
+        XCTAssertEqual(resumed.playbackRate, 1)
+    }
+
+    func testMicrosecondTimestampOnlyUpdateDoesNotExtrapolateTwice() throws {
+        let now = Date(timeIntervalSince1970: 1000.9)
+        let initial = try update(#"{"diff":false,"payload":{"playing":true,"playbackRate":1,"elapsedTimeMicros":10000000,"durationMicros":200000000,"timestampEpochMicros":1000900000}}"#)
+            .applying(to: PlaybackState(bundleIdentifier: ""), now: now)
+        let stopped = try update(#"{"diff":true,"payload":{"playing":false,"playbackRate":0,"timestampEpochMicros":1001900000}}"#)
+            .applying(to: initial, now: now.addingTimeInterval(1))
+        XCTAssertEqual(stopped.currentTime, 10)
+        XCTAssertEqual(stopped.lastUpdated, now.addingTimeInterval(1))
+        let cleared = try update(#"{"diff":true,"payload":{"elapsedTimeMicros":null,"durationMicros":null}}"#)
+            .applying(to: stopped, now: now.addingTimeInterval(2))
+        XCTAssertEqual(cleared.currentTime, 0)
+        XCTAssertEqual(cleared.duration, 0)
     }
 
     func testElapsedTimeWithoutTimestampReanchorsProgress() throws {
@@ -100,6 +138,25 @@ final class MediaPlaybackTests: XCTestCase {
             .applying(to: initial, now: now.addingTimeInterval(10))
         XCTAssertEqual(state.currentTime, 25)
         XCTAssertEqual(state.lastUpdated, now.addingTimeInterval(10))
+    }
+
+    func testRateOnlyUpdatesKeepTimelineContinuousAndExplicitSeekWins() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        let initial = try update(#"{"diff":false,"payload":{"bundleIdentifier":"player","title":"Song","duration":240,"elapsedTime":10,"playing":true,"playbackRate":1}}"#)
+            .applying(to: PlaybackState(bundleIdentifier: ""), now: start)
+        let faster = try update(#"{"diff":true,"payload":{"playbackRate":2}}"#)
+            .applying(to: initial, now: start.addingTimeInterval(2))
+        XCTAssertEqual(faster.currentTime, 12)
+        let stopped = try update(#"{"diff":true,"payload":{"playbackRate":0}}"#)
+            .applying(to: faster, now: start.addingTimeInterval(4))
+        XCTAssertEqual(stopped.currentTime, 16)
+        let resumed = try update(#"{"diff":true,"payload":{"playbackRate":1}}"#)
+            .applying(to: stopped, now: start.addingTimeInterval(10))
+        XCTAssertEqual(resumed.currentTime, 16)
+        XCTAssertEqual(resumed.lastUpdated, start.addingTimeInterval(10))
+        let sought = try update(#"{"diff":true,"payload":{"playing":false,"playbackRate":0,"elapsedTime":3}}"#)
+            .applying(to: resumed, now: start.addingTimeInterval(11))
+        XCTAssertEqual(sought.currentTime, 3)
     }
 
     func testSnapshotsAndDiffsArriveBeforeWriterCloses() throws {
@@ -358,7 +415,10 @@ final class MediaPlaybackTests: XCTestCase {
         var session = NowPlayingPlaybackSession()
         let start = Date(timeIntervalSince1970: 1000)
         _ = session.receive(try neteaseTrack(elapsed: 10), neteaseIsRunning: true, now: start)
-        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        let pending = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        XCTAssertTrue(pending.isPlaying, "The transient-pause filter still owns playback confirmation")
+        XCTAssertEqual(pending.currentTime, 12, accuracy: 0.001)
+        XCTAssertEqual(pending.playbackRate, 0, "Progress must stop while the pause is being confirmed")
         let paused = session.confirmPendingPause(now: start.addingTimeInterval(2.4))
         XCTAssertFalse(paused.isPlaying)
         XCTAssertEqual(paused.currentTime, 12, accuracy: 0.001)
@@ -366,6 +426,60 @@ final class MediaPlaybackTests: XCTestCase {
         XCTAssertTrue(resumed.isPlaying)
         XCTAssertEqual(resumed.currentTime, 12, accuracy: 0.001)
         XCTAssertEqual(resumed.lastUpdated, start.addingTimeInterval(5))
+    }
+
+    func testNetEaseRateArrivingBeforePausePreservesProgress() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(elapsed: 10), neteaseIsRunning: true, now: start)
+        let stopped = session.receive(try update(#"{"diff":true,"payload":{"playbackRate":0}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        XCTAssertEqual(stopped.currentTime, 12, accuracy: 0.001)
+        XCTAssertEqual(stopped.playbackRate, 0)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2.1))
+        let paused = session.confirmPendingPause(now: start.addingTimeInterval(2.5))
+        XCTAssertFalse(paused.isPlaying)
+        XCTAssertEqual(paused.currentTime, 12, accuracy: 0.001)
+        let resumed = session.receive(try update(#"{"diff":true,"payload":{"playing":true}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(5))
+        XCTAssertEqual(resumed.playbackRate, 1)
+        let pausedAgain = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(7))
+        XCTAssertEqual(pausedAgain.currentTime, 14, accuracy: 0.001)
+    }
+
+    func testTransientPauseRestoresOriginalProgressAnchorAfterEmptySnapshot() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(elapsed: 10, rate: 1.5), neteaseIsRunning: true, now: start)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        _ = session.receive(try update(#"{"diff":true,"payload":{"artworkData":"BAUG"}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2.1))
+        let retained = session.receive(try update(#"{"diff":false,"payload":{}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2.2))
+        XCTAssertTrue(retained.isPlaying)
+        XCTAssertEqual(retained.currentTime, 10)
+        XCTAssertEqual(retained.lastUpdated, start)
+        XCTAssertEqual(retained.playbackRate, 1.5)
+        XCTAssertNil(session.pauseDeadline)
+    }
+
+    func testExplicitBackwardSeekDuringPendingPauseIsAccepted() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(elapsed: 100), neteaseIsRunning: true, now: start)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        let seeking = session.receive(try update(#"{"diff":true,"payload":{"elapsedTime":20}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2.1))
+        XCTAssertEqual(seeking.currentTime, 20)
+        XCTAssertEqual(session.confirmPendingPause(now: start.addingTimeInterval(2.4)).currentTime, 20)
+    }
+
+    func testResumeBeforePauseConfirmationDiscardsOldPause() throws {
+        var session = NowPlayingPlaybackSession()
+        let start = Date(timeIntervalSince1970: 1000)
+        _ = session.receive(try neteaseTrack(elapsed: 10), neteaseIsRunning: true, now: start)
+        _ = session.receive(try update(#"{"diff":true,"payload":{"playing":false,"playbackRate":0}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2))
+        let resumed = session.receive(try update(#"{"diff":true,"payload":{"playing":true}}"#), neteaseIsRunning: true, now: start.addingTimeInterval(2.1))
+        XCTAssertTrue(resumed.isPlaying)
+        XCTAssertEqual(resumed.currentTime, 12)
+        XCTAssertEqual(resumed.playbackRate, 1)
+        XCTAssertNil(session.pauseDeadline)
+        XCTAssertEqual(session.confirmPendingPause(now: start.addingTimeInterval(3)), resumed)
     }
 
     func testNetEasePauseWhileMetadataMissingDoesNotRestartPlayback() throws {

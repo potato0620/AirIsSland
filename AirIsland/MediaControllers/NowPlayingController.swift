@@ -228,7 +228,9 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         // Preserve even short-lived valid snapshots before NetEase clears its
         // media session. Coalescing these can erase the new track entirely.
-        process.arguments = [scriptURL.path, frameworkPath, "stream"]
+        // The default ISO timestamp truncates fractional seconds while elapsed
+        // time retains them. Use the adapter's precise paired time fields.
+        process.arguments = [scriptURL.path, frameworkPath, "stream", "--micros"]
         
         let pipeHandler = JSONLinesPipeHandler()
         process.standardOutput = await pipeHandler.getPipe()

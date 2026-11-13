@@ -48,20 +48,27 @@ struct NowPlayingUpdate: Decodable {
             state.artwork = nil
         }
 
-        let timestamp = payload.timestamp.flatMap(Self.parseTimestamp)
+        let timestamp = payload.timestampEpochMicros.map { Date(timeIntervalSince1970: $0 / 1_000_000) }
+            ?? payload.timestamp.flatMap(Self.parseTimestamp)
         if let elapsed = payload.elapsedTime {
             state.currentTime = elapsed
             state.lastUpdated = timestamp ?? now
         } else if payload.clearedFields.contains(.elapsedTime) {
             state.currentTime = 0
             state.lastUpdated = timestamp ?? now
-        } else if diff == true, previous.isPlaying, !state.isPlaying {
-            let delta = max(0, (timestamp ?? now).timeIntervalSince(previous.lastUpdated))
-            let position = previous.currentTime + delta * previous.playbackRate
-            state.currentTime = state.duration > 0 ? min(position, state.duration) : position
-            state.lastUpdated = timestamp ?? now
         } else if let timestamp {
+            // A diff omits an unchanged elapsed value. A new timestamp is the
+            // source's new anchor for that same value, not time to add again.
             state.lastUpdated = timestamp
+        } else if diff == true,
+                  previous.isPlaying != state.isPlaying || previous.playbackRate != state.playbackRate {
+            // Rate and playing can arrive separately. Move the anchor using the
+            // previous rate before stopping it, or a rate-only pause rewinds to
+            // the last elapsed-time sample. Explicit seek positions above win.
+            let delta = max(0, now.timeIntervalSince(previous.lastUpdated))
+            let position = previous.currentTime + (previous.isPlaying ? delta * previous.playbackRate : 0)
+            state.currentTime = state.duration > 0 ? min(position, state.duration) : position
+            state.lastUpdated = now
         } else if previous.isPlaying != state.isPlaying {
             state.lastUpdated = now
         }
@@ -87,6 +94,7 @@ struct NowPlayingPayload: Decodable {
     let repeatMode: Int?
     let artworkData: String?
     let timestamp: String?
+    let timestampEpochMicros: Double?
     let playbackRate: Double?
     let playing: Bool?
     let parentApplicationBundleIdentifier: String?
@@ -100,20 +108,29 @@ struct NowPlayingPayload: Decodable {
         case artworkData, timestamp, playbackRate, playing
         case parentApplicationBundleIdentifier, bundleIdentifier, volume
         case contentItemIdentifier
+        case durationMicros, elapsedTimeMicros, timestampEpochMicros
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        clearedFields = Set(try values.allKeys.filter { try values.decodeNil(forKey: $0) })
+        var cleared = Set(try values.allKeys.filter { try values.decodeNil(forKey: $0) })
+        if cleared.contains(.durationMicros) { cleared.insert(.duration) }
+        if cleared.contains(.elapsedTimeMicros) { cleared.insert(.elapsedTime) }
+        clearedFields = cleared
         title = try values.decodeIfPresent(String.self, forKey: .title)
         artist = try values.decodeIfPresent(String.self, forKey: .artist)
         album = try values.decodeIfPresent(String.self, forKey: .album)
-        duration = try values.decodeIfPresent(Double.self, forKey: .duration)
-        elapsedTime = try values.decodeIfPresent(Double.self, forKey: .elapsedTime)
+        duration = try values.contains(.durationMicros)
+            ? values.decodeIfPresent(Double.self, forKey: .durationMicros).map { $0 / 1_000_000 }
+            : values.decodeIfPresent(Double.self, forKey: .duration)
+        elapsedTime = try values.contains(.elapsedTimeMicros)
+            ? values.decodeIfPresent(Double.self, forKey: .elapsedTimeMicros).map { $0 / 1_000_000 }
+            : values.decodeIfPresent(Double.self, forKey: .elapsedTime)
         shuffleMode = try values.decodeIfPresent(Int.self, forKey: .shuffleMode)
         repeatMode = try values.decodeIfPresent(Int.self, forKey: .repeatMode)
         artworkData = try values.decodeIfPresent(String.self, forKey: .artworkData)
         timestamp = try values.decodeIfPresent(String.self, forKey: .timestamp)
+        timestampEpochMicros = try values.decodeIfPresent(Double.self, forKey: .timestampEpochMicros)
         playbackRate = try values.decodeIfPresent(Double.self, forKey: .playbackRate)
         playing = try values.decodeIfPresent(Bool.self, forKey: .playing)
         parentApplicationBundleIdentifier = try values.decodeIfPresent(String.self, forKey: .parentApplicationBundleIdentifier)
@@ -136,6 +153,7 @@ struct NowPlayingPlaybackSession {
     private var rawState = Self.emptyState()
     private(set) var state = Self.emptyState()
     private var pendingPause: PlaybackState?
+    private var playbackBeforePendingPause: PlaybackState?
     private(set) var pauseDeadline: Date?
     private(set) var trackChangeDeadline: Date?
     private var trackChangeOrigin: (bundle: String, title: String)?
@@ -180,6 +198,14 @@ struct NowPlayingPlaybackSession {
            !state.title.isEmpty,
            neteaseIsRunning,
            next.bundleIdentifier.isEmpty || next.bundleIdentifier == Self.neteaseBundleIdentifier {
+            // An empty snapshot invalidates NetEase's transient pause. Restore
+            // the advancing anchor, including its rate, without losing metadata
+            // reconciled while the confirmation was pending.
+            if let previous = playbackBeforePendingPause {
+                state.currentTime = previous.currentTime
+                state.lastUpdated = previous.lastUpdated
+                state.playbackRate = previous.playbackRate
+            }
             cancelPendingPause()
             // A completed track should stop at its end even if the player never
             // sends another valid snapshot. Retain its metadata like a paused track.
@@ -211,17 +237,27 @@ struct NowPlayingPlaybackSession {
                !update.payload.clearedFields.contains(.artworkData) {
                 next.artwork = state.artwork
             }
-            rawState = next
-            // Keep the raw rate for load acknowledgement. Outside a requested
-            // load, retain the existing playing-only resume compatibility.
-            if next.isPlaying, next.playbackRate <= 0, trackChangeDeadline == nil {
+            // A playing-only resume may omit the new rate. An explicit zero
+            // rate is a real stop and must not be turned back into progress.
+            // Requested loads still require the source's positive rate.
+            if update.payload.playing == true, update.payload.playbackRate == nil,
+               !update.payload.clearedFields.contains(.playbackRate),
+               next.playbackRate <= 0, trackChangeDeadline == nil {
                 next.playbackRate = 1
             }
+            rawState = next
 
             if update.diff == true, !next.isPlaying,
                state.isPlaying, sameTrack(next, state) {
+                if pendingPause == nil { playbackBeforePendingPause = state }
                 pendingPause = next
                 if pauseDeadline == nil { pauseDeadline = now.addingTimeInterval(0.3) }
+                // Keep the playback-state debounce, but stop extrapolating at
+                // the pause position now. Confirmation must not rewind the bar
+                // by the time spent waiting for this deadline.
+                state.currentTime = next.currentTime
+                state.lastUpdated = next.lastUpdated
+                state.playbackRate = 0
                 return refreshTrackChange(now: now)
             }
         }
@@ -274,6 +310,7 @@ struct NowPlayingPlaybackSession {
 
     private mutating func cancelPendingPause() {
         pendingPause = nil
+        playbackBeforePendingPause = nil
         pauseDeadline = nil
     }
 
