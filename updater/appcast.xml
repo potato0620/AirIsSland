@@ -3,35 +3,39 @@
     <channel>
         <title>AirIsland</title>
         <item>
-            <title>2.8.19</title>
-            <pubDate>Sun, 08 Nov 2026 16:00:06 +0800</pubDate>
+            <title>2.8.20</title>
+            <pubDate>Fri, 13 Nov 2026 15:07:37 +0800</pubDate>
             <link>https://github.com/potato0620/AirIsSland/releases</link>
-            <sparkle:version>316</sparkle:version>
-            <sparkle:shortVersionString>2.8.19</sparkle:shortVersionString>
+            <sparkle:version>317</sparkle:version>
+            <sparkle:shortVersionString>2.8.20</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.19 (316)
+            <description sparkle:format="plain-text"><![CDATA[AirIsland 2.8.20（317）
 
 ## 更新内容
 
-- 全面更新应用图标：采用最终版蓝色 Icon Composer 设计，同步主应用、欢迎页、辅助进程和深色外观。
-- 改善计时结束体验：岛保持展开时，倒计时与结束提示之间使用统一曲线的模糊过渡；开启“减少动态效果”时直接切换。
-- 保留结束页在关闭、重新计时和收起中再次展开时的正确状态，计时结束与重新计时立即生效。
-- 精简默认中文 README，新增英文介绍，详细功能、安装和开发说明移入独立文档，统一使用 AirIsland 名称。
+- 修复音乐暂停时进度条短暂前进后回退的问题，改善网易云音乐暂停与恢复时的进度连续性。
+- 提高媒体时间数据精度，正确处理播放状态与播放速率分批更新，避免进度重复累加；保留用户主动向后拖动进度的行为。
+- 调整设置侧栏选中样式，使用浅蓝色背景；窗口失焦时切换为系统弱化选中样式。
+- 补充 README 演示视频、社区链接、提醒事项操作及歌词可用性说明。
 
 ## 安装与兼容
 
 适用于 Apple Silicon Mac，要求 macOS 15 或更新版本。
-请从本页下载 ZIP 或 DMG，退出旧版 AirIsland 后将新版放入“应用程序”。原有设置与用户数据保留。
-本版起采用个人 Mac 钥匙串中的新更新签名密钥，作为今后发布的基线。请先手动安装本版，后续版本可通过应用内“检查更新…”下载并验证。
-本版按维护者要求，使用这台 Mac 现有的固定自签名证书，对主应用及辅助进程签名。该证书不属于 Apple Developer ID，安装包尚未经过 Apple 公证；其他 Mac 首次打开可能需要手动允许，相关系统权限在升级后仍可能需要重新同意，不保证跨设备或跨版本自动继承。
 
-## 验证范围
+沿用 2.8.19 的固定自签名证书及 Sparkle 更新签名密钥。安装包未经过 Apple 公证，首次打开可能需要手动允许；升级后相关系统权限可能需要重新授权。保留原有设置与用户数据。
 
-已通过计时真实截止的逐帧渲染检查、减少动态效果、关闭/重新计时、收起中再次展开等回归，以及活动、媒体和发行相关自动化检查与完整 Release 构建。
-尚未完成 macOS 15 真机、真实多显示器/触控板、系统权限继承与原地升级验收。
+已安装 2.8.19 的用户可通过应用内“检查更新…”升级；更早版本请先手动安装新版。
+
+## 验收范围
+
+媒体修复属于活动来源层，侧栏样式属于呈现层；活动调度的优先级、期限与抢占规则保持不变。
+
+已通过媒体播放 58 项、活动与调度 43 项、发行脚本 51 项自动化测试，以及架构依赖边界检查、手动更新策略检查和完整 arm64 Release 构建。
+
+真实网易云随机切歌、多显示器、侧栏激活与失焦效果、macOS 15 真机、系统权限继承及旧版原地升级仍需验收。
 ]]></description>
-            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.19/AirIsland-2.8.19-macOS-arm64.zip" length="7882903" type="application/octet-stream" sparkle:edSignature="pUnKNZbtbHRn8xqrRy1/UoiZQ7hBIzKoxL8I/wgFAktUeLE/9Mk4410RLKcCbL1GxYBGvCzH4UlZeh4vtHitDA=="/>
+            <enclosure url="https://github.com/potato0620/AirIsSland/releases/download/v2.8.20/AirIsland-2.8.20-macOS-arm64.zip" length="7890304" type="application/octet-stream" sparkle:edSignature="q+xF17Vd2ogfnEv45zDqtWiW6YjmaqnI2i0UldG9tj/H26SHw5WR8fHs0GmgDj6MrEuMBBVgBO4AW8d83c++DQ=="/>
         </item>
     </channel>
 </rss>
