@@ -3,6 +3,48 @@ import SwiftUI
 
 import KeyboardShortcuts
 
+
+/// Presentation-only preference: the island keeps one pager and reads this order.
+struct PageOrderSection: View {
+    @Default(.islandPageOrder) private var order
+
+    private var pages: [IslandPage] { IslandPage.ordered(from: order) }
+
+    var body: some View {
+        Section {
+            ForEach(Array(pages.enumerated()), id: \.element) { index, page in
+                HStack(spacing: 10) {
+                    Text(page.title)
+                    Spacer(minLength: 12)
+                    Button {
+                        order = IslandPage.moving(order, page, by: -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(index == 0)
+                    .accessibilityLabel(Text("Move up"))
+                    Button {
+                        order = IslandPage.moving(order, page, by: 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(index == pages.count - 1)
+                    .accessibilityLabel(Text("Move down"))
+                }
+            }
+        } header: {
+            Text("Page order")
+        } footer: {
+            Text("Move a page up or down. Disabled activities stay hidden.")
+                .settingsNoteStyle()
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 struct PresentationSettings: View {
     var body: some View {
         Form {
@@ -167,6 +209,7 @@ struct DisplayInteractionSections: View {
             }
 
             NotchBehaviour()
+            PageOrderSection()
 
         }
     }

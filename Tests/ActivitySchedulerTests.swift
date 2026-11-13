@@ -17,6 +17,33 @@ final class ActivitySchedulerTests: XCTestCase {
         XCTAssertNil(scheduler.current(at: 10000))
     }
 
+    func testCodexChangePreemptsMusicAndExpires() {
+        var scheduler = ActivityScheduler()
+        scheduler.submit(IslandActivity(kind: .music), at: 0)
+        let change = AgentSessionChange(id: "a", title: "a", from: .running, to: .finished, at: Date())
+        scheduler.submit(IslandActivity(kind: .agentChange, agentChange: change), at: 1)
+        XCTAssertEqual(scheduler.current(at: 2)?.kind, .agentChange)
+        XCTAssertEqual(scheduler.current(at: 2)?.agentChange, change)
+        XCTAssertEqual(scheduler.nextExpiry, 6)
+        XCTAssertEqual(scheduler.current(at: 5.999)?.kind, .agentChange)
+        XCTAssertEqual(scheduler.current(at: 7.5)?.kind, .music)
+        XCTAssertNil(scheduler.current(at: 7.5)?.agentChange)
+    }
+
+    func testAgentChangePresentationNeedsAPayload() {
+        let change = AgentSessionChange(id: "codex:a", title: "Fix tests", from: .running, to: .unread, at: Date())
+        let presentation = IslandPresentation(
+            activity: IslandActivity(kind: .agentChange, agentChange: change)
+        )
+        XCTAssertEqual(presentation, .agentPeek(change))
+        XCTAssertEqual(presentation.agentChange, change)
+
+        let empty = IslandPresentation(activity: IslandActivity(kind: .agentChange))
+        XCTAssertEqual(empty, .idle)
+        XCTAssertNil(empty.agentChange)
+        XCTAssertNil(IslandPresentation(activity: IslandActivity(kind: .music)).agentChange)
+    }
+
     func testVolumeTemporarilyPreemptsMusicThenRestoresIt() {
         var scheduler = ActivityScheduler()
         scheduler.submit(IslandActivity(kind: .music), at: 0)
@@ -241,7 +268,7 @@ final class ActivitySchedulerTests: XCTestCase {
                 XCTAssertEqual(presentation, .power)
             } else if kind == .timer || kind == .timerFinished {
                 XCTAssertEqual(presentation, .timer(finished: kind == .timerFinished))
-            } else if kind == .reminders {
+            } else if kind == .reminders || kind == .codex || kind == .agentChange {
                 XCTAssertEqual(presentation, .idle)
             } else {
                 XCTAssertTrue(presentation.showsMusic)
@@ -256,6 +283,7 @@ enum ActivityTestRunner {
     static func main() {
         let suite = ActivitySchedulerTests.defaultTestSuite
         suite.addTest(PersonalActivityTests.defaultTestSuite)
+        suite.addTest(CodexSessionTests.defaultTestSuite)
         suite.run()
         guard let result = suite.testRun, result.executionCount > 0 else {
             fputs("No activity tests ran\n", stderr)

@@ -228,9 +228,9 @@ final class PersonalActivityTests: XCTestCase {
         XCTAssertEqual(pager.drag(delta: 0.4, seconds: 0.02), .timer)
         pager.end()
         pager.begin()
-        XCTAssertNil(pager.drag(delta: 10, seconds: 0.02))
+        XCTAssertEqual(pager.drag(delta: 10, seconds: 0.02), .codex)
         pager.end()
-        XCTAssertEqual(pager.position, 2)
+        XCTAssertEqual(pager.position, 3)
     }
 
     func testSlowDragHasMoreResistanceThanFastDrag() {
@@ -264,6 +264,31 @@ final class PersonalActivityTests: XCTestCase {
         pager.updatePages(IslandPage.allCases)
         XCTAssertEqual(pager.selection, .timer)
         XCTAssertEqual(pager.position, 2)
+    }
+
+
+    func testPageOrderDropsUnknownAndDuplicateIdentifiers() {
+        XCTAssertEqual(IslandPage.ordered(from: "codex,bogus,codex"), [.codex, .music, .reminders, .timer])
+        XCTAssertEqual(IslandPage.ordered(from: ""), IslandPage.allCases)
+        XCTAssertEqual(IslandPage.ordered(from: "timer,music"), [.timer, .music, .reminders, .codex])
+    }
+
+    func testMovingAPageClampsAtBothEnds() {
+        let order = IslandPage.defaultOrder
+        XCTAssertEqual(IslandPage.moving(order, .music, by: -1), order)
+        XCTAssertEqual(IslandPage.moving(order, .codex, by: 1), order)
+        XCTAssertEqual(IslandPage.moving(order, .music, by: 1), "reminders,music,timer,codex")
+        XCTAssertEqual(IslandPage.moving(order, .codex, by: -1), "music,reminders,codex,timer")
+    }
+
+    func testPagerPreservesACustomPageOrder() {
+        var pager = IslandPager()
+        pager.updatePages([.codex, .music])
+        XCTAssertEqual(pager.pages, [.codex, .music])
+        XCTAssertEqual(pager.selection, .music)
+        pager.begin()
+        XCTAssertEqual(pager.drag(delta: -0.4, seconds: 0.02), .codex)
+        XCTAssertEqual(pager.position, 0)
     }
 
     func testRemovingSelectedPageCancelsDragAndFallsBackToMusic() {

@@ -1,11 +1,54 @@
 import Defaults
 import SwiftUI
 
+extension AgentKind {
+    /// Brand names stay verbatim; they are not translated.
+    var title: String {
+        switch self {
+        case .codex: return "Codex"
+        case .dsh: return "DeepSeek Harness"
+        case .claude: return "Claude Code"
+        case .opencode: return "OpenCode"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .codex: return "terminal"
+        case .dsh: return "sparkle"
+        case .claude: return "text.bubble"
+        case .opencode: return "chevron.left.forwardslash.chevron.right"
+        }
+    }
+}
+
+/// Shared state styling for the compact peek and the expanded rows.
+enum AgentChangeStyle {
+    static func tint(_ state: AgentSessionState) -> Color {
+        switch state {
+        case .running: return .green
+        case .unread: return .blue
+        case .aborted: return .orange
+        case .finished: return .gray
+        }
+    }
+
+    static func label(_ state: AgentSessionState) -> LocalizedStringKey {
+        switch state {
+        case .running: return "In progress"
+        case .unread: return "Unread"
+        case .aborted: return "Interrupted"
+        case .finished: return "Finished"
+        }
+    }
+}
+
 extension IslandPage {
     var title: LocalizedStringKey {
         switch self {
         case .music: return "Media"
         case .reminders: return "Reminders"
+        case .codex: return "Agents"
         case .timer: return "Timer"
         }
     }
@@ -638,6 +681,147 @@ private struct ReminderCreationControls: View, Animatable {
                 .disabled(adding && empty)
         }
         .frame(width: 96, height: 44, alignment: .trailing)
+    }
+}
+
+
+/// Read-only view of Codex's own thread index. No dead controls: the island never
+/// answers approvals or marks threads read.
+struct CodexActivityPage: View, Equatable {
+    var active = true
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.active == rhs.active }
+    @ObservedObject private var activities = ActivityCoordinator.shared
+    @ObservedObject private var source = CodexActivityManager.shared
+    @Default(.codexActivityEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var pendingCount: Int { activities.agentSessions.filter(\.isPending).count }
+
+    private func isHighlighted(_ session: AgentSession) -> Bool {
+        guard let change = activities.agentChange, change.id == session.id else { return false }
+        return Date().timeIntervalSince(change.at) < 6
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Agents").foregroundStyle(.white.opacity(0.8))
+                Spacer(minLength: 8)
+                Text("\(pendingCount) pending")
+                    .foregroundStyle(.white.opacity(0.45))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(countsDown: true))
+                    .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: pendingCount)
+            }
+            if !enabled || activities.agentSessions.isEmpty {
+                VStack(spacing: 4) {
+                    Text(enabled ? LocalizedStringKey("No active agent sessions") : LocalizedStringKey("Agent sessions are turned off"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    if enabled && !source.available {
+                        Text("No local agent data was found.")
+                            .settingsNoteStyle()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(AgentSession.sections(activities.agentSessions), id: \.agent) { section in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: section.agent.symbol)
+                                        .font(.system(size: 9))
+                                    Text(section.agent.title)
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Spacer(minLength: 6)
+                                    Text("\(section.sessions.count)")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.white.opacity(0.35))
+                                        .monospacedDigit()
+                                }
+                                .foregroundStyle(.white.opacity(0.55))
+                                ForEach(section.sessions) { session in
+                                    AgentSessionRow(session: session, highlighted: isHighlighted(session))
+                                        .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
+                                }
+                            }
+                        }
+                    }
+                    .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: activities.agentSessions)
+                }
+            }
+        }
+        .task { await source.refresh() }
+    }
+}
+
+private struct AgentSessionRow: View {
+    let session: AgentSession
+    var highlighted = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var tint: Color { AgentChangeStyle.tint(session.state) }
+    private var stateLabel: LocalizedStringKey { AgentChangeStyle.label(session.state) }
+
+    private var opensOnClick: Bool { session.agent == .codex || session.agent == .dsh }
+
+    private var openTitle: LocalizedStringKey {
+        session.agent == .dsh ? "Open DeepSeek Harness" : "Open in Codex"
+    }
+
+    var body: some View {
+        Group {
+            if opensOnClick {
+                Button {
+                    CodexActivityManager.shared.open(session)
+                } label: {
+                    row
+                }
+                .buttonStyle(.plain)
+                .help(Text(openTitle))
+                .accessibilityLabel(Text(session.title))
+                .accessibilityHint(Text(openTitle))
+            } else {
+                row
+                    .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 3)
+        .background(
+            Color.white.opacity(highlighted ? 0.10 : 0),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: highlighted)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: session.state)
+    }
+
+    private var row: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+                .scaleEffect(highlighted ? 1.5 : 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(session.project).foregroundStyle(.white.opacity(0.45))
+                    Text("·").foregroundStyle(.white.opacity(0.3))
+                    Text(stateLabel).foregroundStyle(tint)
+                }
+                .font(.system(size: 10))
+            }
+            Spacer(minLength: 6)
+            Text(session.updatedAt, format: .relative(presentation: .numeric))
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.4))
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

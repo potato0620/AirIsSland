@@ -3,12 +3,12 @@ import Foundation
 /// Activity layer: facts about ongoing work, without views, timers or window operations.
 enum IslandActivityKind: String, CaseIterable {
     case music, musicChange, volume, brightness, backlight, mic, power
-    case timer, timerFinished, reminders
+    case timer, timerFinished, reminders, codex, agentChange
 
     var isSystemFeedback: Bool {
         switch self {
         case .volume, .brightness, .backlight, .mic: return true
-        case .music, .musicChange, .power, .timer, .timerFinished, .reminders: return false
+        case .music, .musicChange, .power, .timer, .timerFinished, .reminders, .codex, .agentChange: return false
         }
     }
 }
@@ -19,4 +19,6 @@ struct IslandActivity: Equatable {
     var icon: String = ""
     var timer: TimerSession?
     var reminders: [ReminderTask] = []
+    var agentSessions: [AgentSession] = []
+    var agentChange: AgentSessionChange?
 }

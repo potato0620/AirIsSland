@@ -200,6 +200,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         _ = TimerActivityManager.shared
         _ = RemindersActivityManager.shared
+        _ = CodexActivityManager.shared
         _ = MusicSpectrumSource.shared
 
         NotificationCenter.default.addObserver(

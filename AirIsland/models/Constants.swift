@@ -55,6 +55,11 @@ extension Defaults.Keys {
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let timerActivityEnabled = Key<Bool>("timerActivityEnabled", default: true)
     static let remindersActivityEnabled = Key<Bool>("remindersActivityEnabled", default: true)
+    static let codexActivityEnabled = Key<Bool>("codexActivityEnabled", default: true)
+    static let islandPageOrder = Key<String>("islandPageOrder", default: "music,reminders,timer,codex")
+    static let showFinishedAgentSessions = Key<Bool>("showFinishedAgentSessions", default: true)
+    static let finishedSessionMinutes = Key<Int>("finishedSessionMinutes", default: 5)
+    static let agentChangeAnimation = Key<AgentChangeAnimation>("agentChangeAnimation", default: .stretch)
     static let reminderListIdentifier = Key<String>("reminderListIdentifier", default: "")
     // MARK: Battery
     static let showPowerStatusNotifications = Key<Bool>("showPowerStatusNotifications", default: true)

@@ -51,7 +51,7 @@ struct InlineHUD: View {
                                 .symbolVariant(value > 0 ? .none : .slash)
                                 .contentTransition(.interpolate)
                                 .frame(width: 20, height: 15, alignment: .leading)
-                        case .music, .musicChange, .power, .timer, .timerFinished, .reminders:
+                        case .music, .musicChange, .power, .timer, .timerFinished, .reminders, .codex, .agentChange:
                             EmptyView()
                     }
                 }
@@ -155,7 +155,7 @@ struct InlineHUD: View {
                 return "Backlight"
             case .mic:
                 return "Mic"
-            case .music, .musicChange, .power, .timer, .timerFinished, .reminders:
+            case .music, .musicChange, .power, .timer, .timerFinished, .reminders, .codex, .agentChange:
                 return ""
         }
     }

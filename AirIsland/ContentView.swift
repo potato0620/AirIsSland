@@ -20,6 +20,9 @@ struct ContentView: View {
     @Default(.lightingEffect) private var musicBackgroundEnabled
     @Default(.remindersActivityEnabled) private var remindersEnabled
     @Default(.timerActivityEnabled) private var timerEnabled
+    @Default(.codexActivityEnabled) private var codexEnabled
+    @Default(.islandPageOrder) private var pageOrder
+    @Default(.agentChangeAnimation) private var agentChangeAnimation
     @Default(.showPageIndicators) private var showPageIndicators
 
     @ObservedObject var coordinator = IslandWindowCoordinator.shared
@@ -38,16 +41,18 @@ struct ContentView: View {
     @State private var spectrumConsumer = UUID()
     @State private var expandedPagesVisible = false
     @State private var compactContentVisible = false
+    @State private var agentAutoCloseTask: Task<Void, Never>?
 
     @ObservedObject private var activities = ActivityCoordinator.shared
 
     private var presentation: IslandPresentation { IslandPresentation(activity: activities.current) }
 
     private var enabledPages: [IslandPage] {
-        IslandPage.allCases.filter { page in
+        IslandPage.ordered(from: pageOrder).filter { page in
             switch page {
             case .music: return true
             case .reminders: return remindersEnabled
+            case .codex: return codexEnabled
             case .timer: return timerEnabled
             }
         }
@@ -159,6 +164,13 @@ struct ContentView: View {
                         doOpen()
                     }
                     .onChange(of: activities.current, initial: true) { previous, current in
+                        if current?.kind == .agentChange, previous?.kind != .agentChange,
+                           agentChangeAnimation == .expand {
+                            hoverTask?.cancel()
+                            showOpeningPage(.codex)
+                            withAnimation(islandAnimation) { vm.open() }
+                            scheduleAgentAutoClose()
+                        }
                         if IslandPresentation(activity: current).requiresExpandedTimer {
                             hoverTask?.cancel()
                             showOpeningPage(.timer)
@@ -171,12 +183,22 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .onChange(of: agentPageExtraHeight) { _, extra in
+                        guard abs(vm.expandedHeightDelta - extra) > 0.5 else { return }
+                        vm.expandedHeightDelta = extra
+                        NotificationCenter.default.post(name: .notchHeightChanged, object: nil)
+                    }
                     .onChange(of: vm.notchState) { _, newState in
+                        if newState == .closed, vm.expandedHeightDelta != 0 {
+                            vm.expandedHeightDelta = 0
+                            NotificationCenter.default.post(name: .notchHeightChanged, object: nil)
+                        }
                         if newState == .open {
                             let page: IslandPage
                             switch activities.current?.kind {
                             case .timer, .timerFinished: page = .timer
                             case .reminders: page = .reminders
+                            case .codex, .agentChange: page = .codex
                             case .none: page = pager.lastBrowsedPage ?? (activities.reminders.isEmpty ? .music : .reminders)
                             case .music, .musicChange, .volume, .brightness, .backlight, .mic, .power: page = .music
                             }
@@ -249,6 +271,31 @@ struct ContentView: View {
                                       .font(.caption).monospacedDigit().foregroundStyle(.orange)
                               }
                           }
+                      } else if agentChangeAnimation == .stretch, let change = presentation.agentChange {
+                          CompactActivityLayout(notchWidth: vm.closedNotchSize.width, height: vm.effectiveClosedNotchHeight, maximumWidth: vm.expandedNotchSize.width) {
+                              HStack(spacing: 5) {
+                                  Circle()
+                                      .fill(AgentChangeStyle.tint(change.to))
+                                      .frame(width: 5, height: 5)
+                                  Text(change.title)
+                                      .font(.caption)
+                                      .foregroundStyle(.white)
+                                      .lineLimit(1)
+                              }
+                              HStack(spacing: 4) {
+                                  if let from = change.from {
+                                      Text(AgentChangeStyle.label(from))
+                                          .foregroundStyle(.white.opacity(0.5))
+                                      Image(systemName: "arrow.right")
+                                          .font(.system(size: 8))
+                                          .foregroundStyle(.white.opacity(0.4))
+                                  }
+                                  Text(AgentChangeStyle.label(change.to))
+                                      .foregroundStyle(AgentChangeStyle.tint(change.to))
+                              }
+                              .font(.caption2)
+                          }
+                          .transition(.opacity)
                       } else if presentation.feedback != nil {
                           InlineHUD(type: activities.current?.kind ?? .volume, value: Binding(get: { activities.current?.value ?? 0 }, set: { activities.updateFeedbackValue($0) }), icon: activities.current?.icon ?? "", hoverAnimation: $isHovering)
                               .transition(.opacity)
@@ -302,6 +349,9 @@ struct ContentView: View {
                             case .reminders:
                                 RemindersActivityPage(active: vm.notchState == .open && pager.selection == .reminders)
                                     .equatable()
+                            case .codex:
+                                CodexActivityPage(active: vm.notchState == .open && pager.selection == .codex)
+                                    .equatable()
                             case .timer: TimerActivityPage(active: vm.notchState == .open && pager.selection == .timer,
                                                           expansion: expansion)
                                     .equatable()
@@ -328,7 +378,20 @@ struct ContentView: View {
     }
 
     private var expandedPageHeight: CGFloat {
-        max(0, expandedNotchHeight - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
+        max(0, vm.expandedNotchSize.height - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing)
+    }
+
+    /// Content-derived height for the sessions page, clamped so the island never
+    /// grows past a usable size on screen.
+    private var agentPageExtraHeight: CGFloat {
+        guard pager.selection == .codex, vm.notchState == .open else { return 0 }
+        let sections = AgentSession.sections(activities.agentSessions)
+        guard !sections.isEmpty else { return 0 }
+        let rows = sections.reduce(0) { $0 + $1.sessions.count }
+        let needed = 30 + CGFloat(sections.count) * 22 + CGFloat(rows) * 30
+        let base = expandedNotchHeight - max(24, vm.effectiveClosedNotchHeight) - MusicPlayerImageSizes.sectionSpacing
+        let screenCap = max(120, (NSScreen.main?.visibleFrame.height ?? 900) * 0.35)
+        return max(0, min(needed - base, min(240, screenCap)))
     }
 
     private func expandedPage<Content: View>(_ page: IslandPage, width: CGFloat, expansion: CGFloat, @ViewBuilder content: () -> Content) -> some View {
@@ -360,6 +423,7 @@ struct ContentView: View {
 
     private func selectPage(_ page: IslandPage) {
         guard enabledPages.contains(page) else { return }
+        agentAutoCloseTask?.cancel()
         activities.prefer(page.activityKind)
         let changed = page != pager.selection
         pager.select(page, manually: true)
@@ -369,6 +433,17 @@ struct ContentView: View {
         if page == .music { musicPageHasEntered = true }
         withAnimation(IslandAnimations.pageCommit(reduceMotion: reduceMotion)) { pagePosition = CGFloat(pager.position) }
         IslandHaptics.alignment()
+    }
+
+    /// Expand style: open the sessions page for one update, then retract unless the
+    /// pointer or the user keeps it open.
+    private func scheduleAgentAutoClose() {
+        agentAutoCloseTask?.cancel()
+        agentAutoCloseTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, vm.notchState == .open, !isHovering else { return }
+            withAnimation(islandAnimation) { vm.close() }
+        }
     }
 
     private func showOpeningPage(_ page: IslandPage) {
@@ -491,6 +566,7 @@ struct ContentView: View {
     private func handleHover(_ hovering: Bool) {
         if coordinator.firstLaunch { return }
         hoverTask?.cancel()
+        if hovering { agentAutoCloseTask?.cancel() }
         
         if hovering {
             withAnimation(islandAnimation) {
