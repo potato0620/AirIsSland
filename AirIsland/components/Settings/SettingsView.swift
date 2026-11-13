@@ -108,6 +108,7 @@ struct SettingsNavigationHeader: View {
 
 struct SettingsSidebar: View {
     @ObservedObject var navigation: SettingsNavigation
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         List(SettingsPage.allCases, selection: $navigation.selectedPage) { page in
@@ -117,6 +118,18 @@ struct SettingsSidebar: View {
                 page.icon
             }
             .tag(page)
+            .foregroundStyle(navigation.selectedPage == page && controlActiveState == .key
+                             ? Color.white : Color.primary)
+            // Match the lighter blue selection in macOS System Settings.
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(navigation.selectedPage == page
+                          ? (controlActiveState == .key
+                             ? Color(red: 73.0 / 255, green: 153.0 / 255, blue: 1)
+                             : Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
+                          : Color.clear)
+                    .padding(.horizontal, 10)
+            )
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
