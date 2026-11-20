@@ -701,7 +701,7 @@ struct RemindersActivityPage: View, Equatable {
                     .onHover { countHovered = $0 }
                     .animation(IslandAnimations.animation(reduceMotion: reduceMotion), value: countHovered)
                     .accessibilityHint(Text("Open Reminders"))
-                }.font(.subheadline).lineLimit(1)
+                }.font(.system(size: 12)).lineLimit(1)
                 VStack(alignment: .leading, spacing: 5) {
                     if let error = source.errorMessage {
                         Text(error).font(.caption).foregroundStyle(.secondary).lineLimit(2)
